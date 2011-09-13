@@ -2,9 +2,14 @@ package android.content;
 
 import java.util.ArrayList;
 
+import android.os.BatteryStats;
+import android.os.Parcel;
+import android.os.RemoteException;
+import android.os.ServiceManager;
 import android.util.Log;
 import android.util.Pair;
 
+import com.android.internal.app.IBatteryStats;
 import com.android.internal.os.PowerProfile;
 
 
@@ -14,24 +19,65 @@ import com.android.internal.os.PowerProfile;
  * @author fmaker
  *
  */
+/**
+ * @author fmaker
+ *
+ */
 public class Profile{
-	private static final String TAG = "Profile";
+	private static final String TAG = "ThresholdTable";
 	private static final int SECS_IN_MIN = 60;
 	private static final int SECS_IN_HOUR = 60*SECS_IN_MIN;
 	private static final int MIN_HORIZON = SECS_IN_HOUR*24; /* 1 Day */
 	private static final float HORIZON_TOL = 1.10F; /* 110% */
-	private static final int NINE_HOURS = 9*60*60;
+	private static final int NINE_HOURS = 9*60;
+	private static final int SEC_PER_HOUR = 60*60;
+	private static final int MA_PER_AMP = 1000;
+	private static final float NOMINAL_VOLTAGE = 3.7F;
+	
+    private BatteryStats mStats;
 
 	//private BatteryStatsReceiver batteryStatsReceiver;
 	public PowerProfile mPowerProfile;
 	//public UserProfile mUserProfile;
 	//public DeviceProfile mDeviceProfile;
+	private PowerProfile mProfile;
 	
 	private float mPercent;
 	private float mEnergy; /* In Joules */
+	private IBatteryStats mBatteryInfo;
 
-	public Profile() {
-		Log.d(TAG, "Profile()");
+	public Profile(Context context) {
+		Log.d(TAG, "Profile() START");
+
+		Log.d(TAG, "new PowerProfile(context)");
+		mProfile = new PowerProfile(context);
+		Log.d(TAG, "capacity"+mProfile.getBatteryCapacity());
+		
+		Log.d(TAG, "getService(\"batteryinfo\")");
+        mBatteryInfo = IBatteryStats.Stub.asInterface(
+                ServiceManager.getService("batteryinfo"));
+
+		Log.d(TAG, "try {");
+        byte[] data;
+		try {
+    		Log.d(TAG, "getStatistics()");
+			data = mBatteryInfo.getStatistics();
+			Parcel parcel = Parcel.obtain();
+    		Log.d(TAG, "unmarshall()");
+			parcel.unmarshall(data, 0, data.length);
+        	parcel.setDataPosition(0);
+    		Log.d(TAG, "createFromParcel()");
+        	mStats = com.android.internal.os.BatteryStatsImpl.CREATOR.createFromParcel(parcel);
+		}
+        catch (RemoteException e) {
+            Log.e(TAG, "RemoteException:", e);
+        }
+
+		Log.d(TAG, "load()");
+		
+        load();
+		
+		Log.d(TAG, "Profile() END");
 
 		/* Setup and register battery information receiver */
         //IntentFilter filter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
@@ -43,6 +89,20 @@ public class Profile{
         //mDeviceProfile = new DeviceProfile(context);
 
 	}
+
+    private void load() {
+        try {
+            byte[] data = mBatteryInfo.getStatistics();
+            Parcel parcel = Parcel.obtain();
+            parcel.unmarshall(data, 0, data.length);
+            parcel.setDataPosition(0);
+            mStats = com.android.internal.os.BatteryStatsImpl.CREATOR
+                    .createFromParcel(parcel);
+            //mStats.distributeWorkLocked(BatteryStats.STATS_SINCE_CHARGED);
+        } catch (RemoteException e) {
+            Log.e(TAG, "RemoteException:", e);
+        }
+    }
 
 	/* Determines the charge probability by taking the count of all the
 	 * previous discharge durations less than or equal to timeSinceSync divided
@@ -79,10 +139,16 @@ public class Profile{
 		return NINE_HOURS;
 	}
 
+	/* 
+	 * Returns maximum battery in mAh
+	 */
 	public int getMaxBattery() {
-		/*final int FULL_BATTERY = 100;
-		return (int) mDeviceProfile.getEnergyRemaining(FULL_BATTERY);*/
-		return (int) (1500 * 1e-3 / (60 * 60) * 4);
+		Log.d(TAG, "getMaxBattery()");
+		double mAh = mProfile.getBatteryCapacity();
+		Log.d(TAG, String.format("battery capacity = %.2f",mProfile.getBatteryCapacity()));
+		//final int joules =  (int) (mProfile.getBatteryCapacity() / SEC_PER_HOUR * NOMINAL_VOLTAGE);
+		//Log.d(TAG, String.format("battery energy = %d",joules));
+		return (int) mAh;
 	}
 
 	/*public class BatteryStatsReceiver extends BroadcastReceiver {
