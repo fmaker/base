@@ -61,7 +61,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public final class BatteryStatsImpl extends BatteryStats {
     private static final String TAG = "BatteryStatsImpl";
-    private static final boolean DEBUG = false;
+    private static final boolean DEBUG = true;
     private static final boolean DEBUG_HISTORY = false;
     
     // In-memory Parcel magic number, used to detect attempts to unmarshall bad data

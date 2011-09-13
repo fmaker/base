@@ -104,10 +104,11 @@ public class Profile{
         }
     }
 
-	/* Determines the charge probability by taking the count of all the
-	 * previous discharge durations less than or equal to timeSinceSync divided
-	 * by the total number discharge durations. */
-
+	/**
+	 * Get the charging probability
+	 * 
+	 * @return probability of charging from 0 to 1 inclusive
+	 */
 	public double getChargeProb(int timeSinceSync) {
 		/*int count = 0;
 		List<Integer> d = mUserProfile.getDischargeTimes();
@@ -117,14 +118,68 @@ public class Profile{
 				count++;
 		}
 		return (double) count/d.size();*/
-		return 1.0;
+		return timeSinceSync >= NINE_HOURS ? 1.0 : 0.0;
 	}
 
+	/**
+	 * We assume that cell phone is active (from charging to next charging) while
+	 * the user is 'on the move'. This time is relatively predictable. So instead of
+	 * average over absolute charging time, the calculation average over the active
+	 * period.
+	 * 
+	 * For profile, each discharge period is a unit. We don't care about when discharging starts, but
+	 * instead we care only about length of the discharging time. So we 'align' each period
+	 * by their starting time. E.g. (assume time slot is 1 hour)
+	 * 
+	 * Time slot: 1 2 3...
+	 * 
+	 * Discharging Period 1: 8am 9am 10am...
+	 * 
+	 * Remaining: 100 90 80...
+	 * 
+	 * Used: 10 10 15...
+	 * 
+	 * ChargeProb: 0.000 0.000 0.001...
+	 * 
+	 * -----------------------------------------
+	 * 
+	 * Day 2: 9am 10am 11am...
+	 * 
+	 * -----------------------------------------
+	 * 
+	 * Profile:
+	 * 
+	 * Used 5 8 20...
+	 * 
+	 * CallProb: 0.001 0.001 0.002...
+	 * 
+	 * ChargeProb: 0.000 0.001 0.003...
+	 * 
+	 * @author yichuan
+	 * 
+	 */
+
+	/**
+	 * Get the energy consumption in a time slot. Energy used by everything
+	 * except sync we scheduled. (Which can be phone call only). This value is
+	 * a random variable based on energy consumption from all the time periods
+	 * logged in the past.
+	 * 
+	 * @return <EnergyUsed, Probability>
+	 */
 	public ArrayList<Pair<Integer, Double>> getEnergyUsed(int t) {
+		// Iterate over discharge periods
 		
+			// Iterate over each time sync since in period
+				// Add to bin
 		return new ArrayList<Pair<Integer, Double>>();
 	}
 
+	/**
+	 * Get the maximum length of a discharging period.
+	 * 
+	 * @return length in seconds
+	 */
 	public int getHorizon() {
 		/*int max = MIN_HORIZON;
 		List<Integer> d = mUserProfile.getDischargeTimes();
@@ -139,8 +194,12 @@ public class Profile{
 		return NINE_HOURS;
 	}
 
-	/* 
-	 * Returns maximum battery in mAh
+
+	/**
+	 * Get the energy consumption in a time slot. Energy used by everything
+	 * except sync we scheduled. (Which can be phone call only)
+	 * 
+	 * @return Maximum battery energy (when fully charged) in Joules
 	 */
 	public int getMaxBattery() {
 		Log.d(TAG, "getMaxBattery()");
@@ -151,23 +210,7 @@ public class Profile{
 		return (int) mAh;
 	}
 
-	/*public class BatteryStatsReceiver extends BroadcastReceiver {
-		private static final float MA_IN_AMP = 1000;
-		private static final float MV_IN_VOLT = 1000;
-
-		@Override
-		public void onReceive(Context context, Intent intent) {
-			int scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
-			int level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, 0);
-			float voltage = (float) intent.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) / (float) MV_IN_VOLT;
-			mPercent = (float) level / (float)scale;
-			
-			mEnergy = (float) ((mPowerProfile.getBatteryCapacity() / MA_IN_AMP) * SECS_IN_HOUR * voltage * mPercent);
-
-		}
-
-	}*/
-/*
+	/*
 	@Override
 	public String toString() {
         String s = "";
@@ -188,3 +231,4 @@ public class Profile{
 	
 
 }
+
