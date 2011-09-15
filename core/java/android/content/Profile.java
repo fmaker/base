@@ -205,8 +205,8 @@ public class Profile{
 		Log.d(TAG, "getMaxBattery()");
 		double mAh = mProfile.getBatteryCapacity();
 		Log.d(TAG, String.format("battery capacity = %.2f",mProfile.getBatteryCapacity()));
-		//final int joules =  (int) (mProfile.getBatteryCapacity() / SEC_PER_HOUR * NOMINAL_VOLTAGE);
-		//Log.d(TAG, String.format("battery energy = %d",joules));
+		final int joules =  (int) ( mProfile.getBatteryCapacity() / MA_PER_AMP * SEC_PER_HOUR * NOMINAL_VOLTAGE);
+		Log.d(TAG, String.format("battery energy = %d",joules));
 		return (int) mAh;
 	}
 
