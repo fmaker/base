@@ -1409,8 +1409,10 @@ public final class ActivityManagerService extends ActivityManagerNative
         File dataDir = Environment.getDataDirectory();
         File systemDir = new File(dataDir, "system");
         systemDir.mkdirs();
+        Log.d("DEBUG","new BatteryStatsService()");
         mBatteryStatsService = new BatteryStatsService(new File(
                 systemDir, "batterystats.bin").toString());
+        Log.d("DEBUG","readLocked()");
         mBatteryStatsService.getActiveStatistics().readLocked();
         mBatteryStatsService.getActiveStatistics().writeAsyncLocked();
         mOnBattery = DEBUG_POWER ? true

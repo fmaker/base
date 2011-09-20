@@ -4696,7 +4696,7 @@ public final class BatteryStatsImpl extends BatteryStats {
         } catch(java.io.IOException e) {
             Slog.e("BatteryStats", "Error reading battery statistics", e);
         }
-        
+        Log.d("DEBUG", "CMD_START");
         addHistoryRecordLocked(SystemClock.elapsedRealtime(), HistoryItem.CMD_START);
     }
 
