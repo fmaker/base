@@ -3,6 +3,9 @@ package android.content;
 import java.util.ArrayList;
 import java.util.HashMap;
 
+import android.database.sqlite.SQLiteDatabase;
+import android.database.sqlite.SQLiteDatabase.CursorFactory;
+import android.database.sqlite.SQLiteOpenHelper;
 import android.os.BatteryManager;
 import android.os.BatteryStats;
 import android.os.BatteryStats.HistoryItem;
@@ -34,6 +37,11 @@ public class Profile {
 	private static final int BIN_WIDTH = 60 * 1; /* One minute */
 	private static final float MILLI = 1000.0F;
 
+	private BatteryStats mStats;
+	public PowerProfile mPowerProfile;
+	private PowerProfile mProfile;
+	private IBatteryStats mBatteryInfo;
+
 	
 	/* 
 	 * bins is used to keep a map from the time since sync (bin number)
@@ -45,14 +53,6 @@ public class Profile {
 	
 	private HashMap<Integer, HashMap<Float,Integer>> bins;
 
-	private BatteryStats mStats;
-
-	// private BatteryStatsReceiver batteryStatsReceiver;
-	public PowerProfile mPowerProfile;
-	// public UserProfile mUserProfile;
-	// public DeviceProfile mDeviceProfile;
-	private PowerProfile mProfile;
-	private IBatteryStats mBatteryInfo;
 
 	public Profile(Context context) {
 
@@ -114,6 +114,7 @@ public class Profile {
 			final HistoryItem rec = new HistoryItem();
 
 			while (mStats.getNextHistoryLocked(rec)) {
+				addToDb(rec);
 
 				/* Change percent to floating point */
 				percent = (float) rec.batteryLevel / (float) scale;
@@ -154,11 +155,6 @@ public class Profile {
 			}
 		}
 	}
-
-	/*public int getMaxLevel() {
-		Log.d(TAG, "BatteryCapacity (mAh) = "+mProfile.getBatteryCapacity());
-		return (int) (mProfile.getBatteryCapacity() / MILLI * SECS_IN_HOUR * MAX_VOLTAGE);
-	}*/
 
 	/**
 	 * Get the charging probability
@@ -262,9 +258,52 @@ public class Profile {
 	public int getMaxBattery() {
 		return SCALE;
 	}
+	
+	/**
+	 * HistoryItems are stored in a database to retain a longer history than
+	 * the framework does
+	 */
+	
+	private class BatteryHistoryOpenHelper extends SQLiteOpenHelper {
+		private static final int VERSION = 1;
+		private static final String DB_NAME = "battery_stats";
+		private static final String TABLE_NAME = "battery_stats";
+		private static final String KEY_ID = "id";
+		private static final String KEY_TIME = "time";
+		private static final String KEY_BATTERYLEVEL = "batteryLevel";
+		private static final String KEY_BATTERYSTATUS = "batteryStatus";
+		private static final String KEY_VOLTAGE = "voltage";
+		
+		private static final String TABLE_CREATE =
+				"CREATE TABLE "+TABLE_NAME+" ("+
+						KEY_ID + " INTEGER PRIMARY KEY,"+
+						KEY_TIME + " INTEGER,"+
+						KEY_BATTERYLEVEL + " INTEGER,"+
+						KEY_BATTERYSTATUS + " INTEGER,"+
+						KEY_VOLTAGE + " INTEGER"+
+						");";
 
+		public BatteryHistoryOpenHelper(Context context, String name,
+				CursorFactory factory, int version) {
+			super(context, DB_NAME, factory, VERSION);
+		}
 
-	/*
+		@Override
+		public void onCreate(SQLiteDatabase db) {
+			db.execSQL(TABLE_CREATE);
+		}
+
+		@Override
+		public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+		}
+		
+	}
+
+	private void addToDb(HistoryItem rec) {
+		
+	}
+
+	/**
 	 * Utility functions
 	 */
 	

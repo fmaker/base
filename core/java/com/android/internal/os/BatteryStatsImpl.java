@@ -71,10 +71,10 @@ public final class BatteryStatsImpl extends BatteryStats {
     private static final int VERSION = 53;
 
     // Maximum number of items we will record in the history.
-    private static final int MAX_HISTORY_ITEMS = 2000;
+    private static final int MAX_HISTORY_ITEMS = 2000*10;
     
     // No, really, THIS is the maximum number of items we will record in the history.
-    private static final int MAX_MAX_HISTORY_ITEMS = 3000;
+    private static final int MAX_MAX_HISTORY_ITEMS = 3000*10;
 
     // The maximum number of names wakelocks we will keep track of
     // per uid; once the limit is reached, we batch the remaining wakelocks
@@ -4033,7 +4033,8 @@ public final class BatteryStatsImpl extends BatteryStats {
         
         initDischarge();
 
-        clearHistoryLocked();
+        Log.d("BatteryStats", "NOT clearing history!");
+        //clearHistoryLocked();
     }
 
     void updateDischargeScreenLevels(boolean oldScreenOn, boolean newScreenOn) {
@@ -4708,12 +4709,14 @@ public final class BatteryStatsImpl extends BatteryStats {
         mHistory = mHistoryEnd = mHistoryCache = null;
         mHistoryBaseTime = 0;
         long time;
+        int i=0;
         while (in.dataAvail() > 0 && (time=in.readLong()) >= 0) {
             HistoryItem rec = new HistoryItem(time, in);
             addHistoryRecordLocked(rec);
             if (rec.time > mHistoryBaseTime) {
                 mHistoryBaseTime = rec.time;
             }
+            i++;
         }
         
         long oldnow = SystemClock.elapsedRealtime() - (5*60*100);
@@ -4726,6 +4729,7 @@ public final class BatteryStatsImpl extends BatteryStats {
             // point in boot the elapsed time is already more than 5 seconds.
             mHistoryBaseTime -= oldnow;
         }
+        Slog.d("BatteryStats", "readFromParcel: read in "+i+" entries");
     }
     
     void writeHistory(Parcel out) {

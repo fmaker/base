@@ -19,7 +19,6 @@ package com.android.internal.os;
 
 import android.content.Context;
 import android.content.res.XmlResourceParser;
-import android.os.BatteryManager;
 
 import com.android.internal.util.XmlUtils;
 
@@ -140,11 +139,6 @@ public class PowerProfile {
      * Battery capacity in milliAmpHour (mAh).
      */
     public static final String POWER_BATTERY_CAPACITY = "battery.capacity";
-
-    /**
-     * Maximum battery level
-     */
-    public static final String POWER_BATTERY_SCALE = "scale";
 
     static final HashMap<String, Object> sPowerMap = new HashMap<String, Object>();
 
@@ -282,9 +276,5 @@ public class PowerProfile {
             return ((Double[])value).length;
         }
         return 1; // Only one speed
-    }
-
-    public int getBatteryScale() {
-        return (Integer) sPowerMap.get(POWER_BATTERY_SCALE);
     }
 }
