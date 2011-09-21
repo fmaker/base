@@ -3,9 +3,9 @@ package android.content;
 import java.util.ArrayList;
 import java.util.HashMap;
 
+import android.os.BatteryManager;
 import android.os.BatteryStats;
 import android.os.BatteryStats.HistoryItem;
-import android.os.BatteryManager;
 import android.os.Parcel;
 import android.os.RemoteException;
 import android.os.ServiceManager;
@@ -29,16 +29,21 @@ public class Profile {
 	private static final String TAG = "Profile";
 	private static final int SECS_IN_MIN = 60;
 	private static final int SECS_IN_HOUR = 60 * SECS_IN_MIN;
-	private static final int MIN_HORIZON = SECS_IN_HOUR * 24; /* 1 Day */
-	private static final float HORIZON_TOL = 1.10F; /* 110% */
-	private static final int NINE_HOURS = 9 * 60;
-	private static final int SEC_PER_HOUR = 60 * 60;
-	private static final float LAST_VOLTAGE = 3.7F; /*
-													 * TODO: Update with actual
-													 * voltage
-													 */
-	private static final int BIN_WIDTH = 60 * 5;
+	private static final int MIN_HORIZON = 9 * 60;
+	private static final int SCALE = 100;
+	private static final int BIN_WIDTH = 60 * 1; /* One minute */
 	private static final float MILLI = 1000.0F;
+
+	
+	/* 
+	 * bins is used to keep a map from the time since sync (bin number)
+	 * to a map with the energy values used and how many times that value
+	 * was used in this bin 
+	 * 
+	 * HashMap <timeSinceSync>, HashMap<energyUsed, count>> 
+	 */
+	
+	private HashMap<Integer, HashMap<Float,Integer>> bins;
 
 	private BatteryStats mStats;
 
@@ -47,23 +52,15 @@ public class Profile {
 	// public UserProfile mUserProfile;
 	// public DeviceProfile mDeviceProfile;
 	private PowerProfile mProfile;
-
-	private float mPercent;
-	private float mEnergy; /* In Joules */
 	private IBatteryStats mBatteryInfo;
 
 	public Profile(Context context) {
-		Log.d(TAG, "Profile() START");
 
-		Log.d(TAG, "new PowerProfile(context)");
 		mProfile = new PowerProfile(context);
-		Log.d(TAG, "capacity" + mProfile.getBatteryCapacity());
 
-		Log.d(TAG, "getService(\"batteryinfo\")");
 		mBatteryInfo = IBatteryStats.Stub.asInterface(ServiceManager
 				.getService("batteryinfo"));
 
-		Log.d(TAG, "try {");
 		byte[] data;
 		try {
 			Log.d(TAG, "getStatistics()");
@@ -79,9 +76,12 @@ public class Profile {
 			Log.e(TAG, "RemoteException:", e);
 		}
 
-		Log.d(TAG, "load()");
-
+		/* Load battery stats */
 		load();
+		
+		/* Create and load bins */
+		bins = new HashMap<Integer, HashMap<Float,Integer>>();
+		fillBins();
 
 		Log.d(TAG, "Profile() END");
 
@@ -100,12 +100,65 @@ public class Profile {
 			Log.e(TAG, "RemoteException:", e);
 		}
 	}
+	
+	private void fillBins(){
+		final int scale = SCALE;
 
-	private static final float MAX_VOLTAGE = 4.1F;
+		float percent, lastPercent = 100.0F;
+		long offset = 0;
+		float energy = 0F;
+		float fullBattery = 0.0F;
+		boolean first = true;
 
-	public int getMaxLevel() {
-		return (int) (mProfile.getBatteryCapacity() / MILLI * SECS_IN_HOUR * MAX_VOLTAGE);
+		if (mStats.startIteratingHistoryLocked()) {
+			final HistoryItem rec = new HistoryItem();
+
+			while (mStats.getNextHistoryLocked(rec)) {
+
+				/* Change percent to floating point */
+				percent = (float) rec.batteryLevel / (float) scale;
+
+				/* Get relative timestamp */
+				final int timestamp = (int) ((rec.time - offset) / MILLI);
+
+				/* Check if operating on battery and that percent is decreasing */
+				if (rec.batteryStatus == BatteryManager.BATTERY_STATUS_DISCHARGING
+						&& lastPercent > percent && !first) {
+
+					/* Add energy used to bin if level changed */
+					energy = (float) (fullBattery * (lastPercent - percent));
+					add(timestamp, energy);
+
+				}
+				/* Otherwise charging */
+				else if (percent > lastPercent || first) {
+
+					/* Calculate full battery based on current voltage level */
+					final float voltage = (float) rec.batteryVoltage / MILLI;
+					fullBattery = (float) (mProfile.getBatteryCapacity()
+							/ MILLI * SECS_IN_HOUR * voltage);
+
+					/*
+					 * Next event will the first discharge so we need to
+					 * remember the time offset
+					 */
+					offset = rec.time;
+
+					/* Need to force initialization on the first run only */
+					first = false;
+				}
+
+				/* Save for comparison next time */
+				lastPercent = percent;
+
+			}
+		}
 	}
+
+	/*public int getMaxLevel() {
+		Log.d(TAG, "BatteryCapacity (mAh) = "+mProfile.getBatteryCapacity());
+		return (int) (mProfile.getBatteryCapacity() / MILLI * SECS_IN_HOUR * MAX_VOLTAGE);
+	}*/
 
 	/**
 	 * Get the charging probability
@@ -113,7 +166,7 @@ public class Profile {
 	 * @return probability of charging from 0 to 1 inclusive
 	 */
 	public double getChargeProb(int timeSinceSync) {
-		return timeSinceSync >= NINE_HOURS ? 1.0 : 0.0;
+		return timeSinceSync >= getMaxKey(bins,MIN_HORIZON) ? 1.0 : 0.0;
 	}
 
 	/**
@@ -168,106 +221,28 @@ public class Profile {
 	 * 
 	 * @return <EnergyUsed, Probability>
 	 */
-	private HashMap<Integer, ArrayList<Float>> bins;
-	private float voltage = 0.0F;
 
 	public ArrayList<Pair<Integer, Double>> getEnergyUsed(int t) {
-
-		final int scale = mProfile.getBatteryScale();
-
-		float percent, lastPercent = 100.0F;
-		long offset = 0;
-		float energy = 0F;
-		float fullBattery = 0.0F;
-		boolean first = true;
-
-		if (mStats.startIteratingHistoryLocked()) {
-			final HistoryItem rec = new HistoryItem();
-
-			while (mStats.getNextHistoryLocked(rec)) {
-
-				/* Change percent to floating point */
-				percent = (float) rec.batteryLevel / (float) scale;
-
-				/* Get relative timestamp */
-				final int timestamp = (int) ((rec.time - offset) / MILLI);
-
-				/* Check if operating on battery and that percent is decreasing */
-				if (rec.batteryStatus == BatteryManager.BATTERY_STATUS_DISCHARGING
-						&& lastPercent > percent && !first) {
-
-					/* Add energy used to bin if level changed */
-					energy = (float) (fullBattery * (lastPercent - percent));
-
-					add(timestamp, energy);
-
-				}
-				/* Otherwise charging */
-				else if (percent > lastPercent || first) {
-
-					/* Calculate full battery based on current voltage level */
-					final float voltage = (float) rec.batteryVoltage / MILLI;
-					fullBattery = (float) (mProfile.getBatteryCapacity()
-							/ MILLI * SECS_IN_HOUR * voltage);
-
-					/*
-					 * Next event will the first discharge so we need to
-					 * remember the time offset
-					 */
-					offset = rec.time;
-
-					/* Need to force initialization on the first run only */
-					first = false;
-				}
-
-				/* Save for comparison next time */
-				lastPercent = percent;
-
-			}
-		}
-
-		return new ArrayList<Pair<Integer, Double>>();
+		return getBin(t);
 	}
 
-	/*
-	 * Utility functions for getEnergyUsed()
+	/** 
+	 * Gets a list of values and counts for each bin 
 	 */
-
-	/* Return the bin number of the given time */
-	private int getBinNum(int t) {
-		return t / BIN_WIDTH;
-	}
-
-	/* Add value to appropriate bin */
-	public void add(int t, float value) {
-		int binNum = getBinNum(t);
-		ArrayList<Float> bin;
-
-		/* Make new bin if none exists */
-		if (!bins.containsKey(binNum))
-			bins.put(binNum, new ArrayList<Float>());
-
-		/* Find appropriate bin and add */
-		bin = bins.get(binNum);
-		bin.add(value);
-
-	}
-
-	/* Gets the average value at t */
-	public float get(int t) {
+	public ArrayList<Pair<Integer, Double>> getBin(int t) {
 		final int binNum = getBinNum(t);
 
 		if (bins.containsKey(binNum)) {
-			ArrayList<Float> bin = bins.get(binNum);
-
-			float sum = 0.0F;
-			for (float f : bin)
-				sum += f;
-
-			return sum / bin.size();
+			ArrayList<Pair<Integer, Double>> array = new ArrayList<Pair<Integer, Double>>();
+			
+			HashMap<Float,Integer> bin = bins.get(binNum);
+			for(Float key : bin.keySet()){
+				array.add(new Pair<Integer, Double>(bin.get(key),(double) key));
+			}
+			return array;
 
 		} else {
-			return 0.0F;
+			return null;
 		}
 	}
 
@@ -277,39 +252,57 @@ public class Profile {
 	 * @return length in seconds
 	 */
 	public int getHorizon() {
-		return NINE_HOURS;
+		return getMaxKey(bins, MIN_HORIZON);
 	}
 
 	/**
 	 * 
-	 * @return Maximum battery energy (when fully charged) in Joules
+	 * @return Maximum battery percentage
 	 */
 	public int getMaxBattery() {
-		Log.d(TAG, "getMaxBattery()");
-		double mAh = mProfile.getBatteryCapacity();
-		Log.d(TAG,
-				String.format("battery capacity = %.2f",
-						mProfile.getBatteryCapacity()));
-		final int joules = (int) (mProfile.getBatteryCapacity() / MILLI
-				* SEC_PER_HOUR * LAST_VOLTAGE);
-		Log.d(TAG, String.format("battery energy = %d", joules));
-		return (int) mAh;
+		return SCALE;
 	}
 
+
 	/*
-	 * @Override public String toString() { String s = "";
-	 * 
-	 * s +=
-	 * String.format("Remaining Battery Energy:\n\t%.2f mAh, %.2f J, (%.2f %%)\n"
-	 * , mPowerProfile.getBatteryCapacity() * mPercent, mEnergy, mPercent *
-	 * 100);
-	 * 
-	 * s += "Discharge times:\n"; for(long i :
-	 * mUserProfile.getDischargeTimes()){ s +=
-	 * String.format("\t%d seconds = %.2f minutes = %.2f hours\n", i,
-	 * (float)i/SECS_IN_MIN, (float)i/SECS_IN_HOUR); }
-	 * 
-	 * return s; }
+	 * Utility functions
 	 */
+	
+	private <V> Integer getMaxKey(HashMap<Integer,V> map, Integer minimum){
+		Integer max = minimum;
+		for(Integer key : map.keySet()){
+			if(key > max)
+				max = key;
+		}
+		return max;
+	}
+
+	/* Return the bin number of the given time */
+	private int getBinNum(int t) {
+		return t / BIN_WIDTH;
+	}
+
+	/* Add value to appropriate bin */
+	public void add(int t, float value) {
+		int binNum = getBinNum(t);
+		HashMap<Float,Integer> bin;
+
+		/* Make new bin if none exists */
+		if (!bins.containsKey(binNum))
+			bins.put(binNum, new HashMap<Float,Integer>());
+
+		/* Find appropriate bin */
+		bin = bins.get(binNum);
+
+		/* Add new bin if none exists */
+		if (!bin.containsKey(value)){
+			bin.put(value, 1);
+		}
+		else{
+			int count = bin.get(value);
+			bin.put(value, count++);
+		}
+
+	}
 
 }
