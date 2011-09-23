@@ -1,15 +1,11 @@
-package android.content;
 import java.util.ArrayList;
 import java.util.Arrays;
-
-import android.util.Log;
-import android.util.Pair;
 
 /**
  * Threshold calculator
  * 
- * Generates the threshold table which determines the amount of time after
- * the last sync to sync again given the current state.
+ * Generates the threshold table which determines the amount of time after the
+ * last sync to sync again given the current state.
  * 
  * So time slot 0 in the threshold is the last time the phone is disconnected
  * from charger.
@@ -19,117 +15,117 @@ import android.util.Pair;
  */
 
 public class ThresholdTableGenerator {
-	private final static String TAG = "ThresholdTableGenerator";
-
-	private Profile profile;
-	private int getHorizon;
+	private IProfile profile;
+	private int horizon;
 	private int maxBattery;
-	private int secondsPerTimeslot;
 
-	private int energyPerSync;
-
-	private double rewardPerEo;
-	private double rewardPerSync;
-
-	private double[][][] vs;
-	private double[][][] vi;
+	private float[][][] V;
 
 	/* Constants */
+	private float rewardPerRemainEnergy = 0;
+	private int energyPerSync = 1;
+	private float rewardPerOtherUse = 2;
 
-	// reward of 'unit' remaining energy at charging time
-	private double Re;
-
-	// charging time
-
-	public ThresholdTableGenerator(Profile profile) {
-		Log.d(TAG,"ThresholdTableGenerator()");
+	public ThresholdTableGenerator(IProfile profile) {
 		this.profile = profile;
-		getHorizon = profile.getHorizon();
+		horizon = profile.getHorizon();
 		maxBattery = profile.getMaxBattery();
-		Log.d(TAG,String.format("creating two arrays[%d][%d][%d]", getHorizon, maxBattery, getHorizon));
-		vs = new double[getHorizon][maxBattery][getHorizon];
-		vi = new double[getHorizon][maxBattery][getHorizon];
-		Log.d(TAG,"filling two arrays");
 
-		for (double[][] mat : vs)
-			for (double[] row : mat)
-				Arrays.fill(row, -1);
-
-		for (double[][] mat : vi)
-			for (double[] row : mat)
+		V = new float[horizon][maxBattery][horizon];
+		for (float[][] mat : V)
+			for (float[] row : mat)
 				Arrays.fill(row, -1);
 	}
 
-	public double[][][] getThreshold() {
-		double[][][] threshold = new double[getHorizon][maxBattery][getHorizon];
+	public int[][] getThreshold() {
+		int[][] threshold = new int[horizon][maxBattery];
 
-		for (int i = 0; i < getHorizon; i++) {
-			for (int j = 0; j < maxBattery; j++) {
-				for (int k = 0; k < getHorizon; k++) {
-					threshold[i][j][k] = V_star(i, j, k);
+		for (int t = horizon - 1; t >= 0; t--) {
+			for (int Er = 0; Er < maxBattery; Er++) {
+				threshold[t][Er] = horizon;
+				for (int tau = 0; tau <= t; tau++) {
+					float Vs = reward(t, Er, tau, true);
+					float Vi = reward(t, Er, tau, false);
+					if (Vs > Vi) {
+						threshold[t][Er] = tau;
+						break;
+					}
 				}
 			}
 		}
 		return threshold;
 	}
 
-	private double V_star(int t, int Er, int tau) {
-		double p = this.profile.getChargeProb(t);
-		return Er * Re * p + V(t, Er, tau) * (1 - p);
+	private float V(int t, int Er, int tau) {
+		float Vs = reward(t, Er, tau, true);
+		float Vi = reward(t, Er, tau, false);
+
+		return (Vs > Vi) ? Vs : Vi;
 	}
 
-	private double V(int t, int Er, int tau) {
+	private float reward(int t, int Er, int tau, boolean sync) {
 		if (Er == 0) {
 			return 0;
+		} else if (t == horizon - 1) {
+			return Er * rewardPerRemainEnergy;
 		}
-		// else if (t == horizon) {
-		// return Er * Re;
-		// }
-		else {
-			if (vs[t][Er][tau] == -1) {
-				vs[t][Er][tau] = reward(t, Er, tau, true);
-			}
-			if (vi[t][Er][tau] == -1) {
-				vi[t][Er][tau] = reward(t, Er, tau, true);
-			}
 
-			double Vs = vs[t][Er][tau];
-			double Vi = vi[t][Er][tau];
-			return (Vs > Vi) ? Vs : Vi;
-		}
-	}
-
-	private double reward(int t, int Er, int tau, boolean sync) {
 		ArrayList<Pair<Integer, Double>> RV = profile.getEnergyUsed(t);
 
-		double reward = 0;
-
+		float reward = 0;
 		for (int i = 0; i < RV.size(); i++) {
 			Pair<Integer, Double> thisSlot = RV.get(i);
 			int used = thisSlot.first;
-			double prob = thisSlot.second;
+			float prob = thisSlot.second.floatValue();
 			int E = Er - used;
 			if (E < 0) {
 				used = Er;
 				E = 0;
 			}
 
-			double syncReward = 0;
-
+			float syncReward = 0;
 			if (sync) {
 				E = E - energyPerSync;
-				syncReward = this.rewardPerSync;
+				syncReward = (float) Math.sqrt(tau + 1);
 				if (E < 0) {
 					syncReward = 0;
 					E = 0;
 				}
 			}
 
-			double v = V(t + 1, E, tau + 1) + rewardPerEo * used + syncReward;
+			float v;
+			if (syncReward == 0) {
+				if (V[t + 1][E][tau + 1] == -1)
+					V[t + 1][E][tau + 1] = V(t + 1, E, tau + 1);
+				v = V[t + 1][E][tau + 1] + rewardPerOtherUse * used
+						+ syncReward;
+			} else {
+				if (V[t + 1][E][0] == -1)
+					V[t + 1][E][0] = V(t + 1, E, 0);
+				v = V[t + 1][E][0] + rewardPerOtherUse * used + syncReward;
+			}
+
 			reward += prob * v;
 		}
 
 		return reward;
+	}
+
+	public static void main(String[] args) {
+		ThresholdTableGenerator th = new ThresholdTableGenerator(
+				new SynthProfile());
+
+		int[][] threshold = th.getThreshold();
+
+		int i = 50;
+		for (int j = 0; j < th.maxBattery; j++) {
+			System.out.print("t:" + i + " ");
+			System.out.format("Er: %2d ", j);
+			System.out.print(threshold[i][j]);
+			System.out.println();
+		}
+
+		System.out.println();
 	}
 
 }
