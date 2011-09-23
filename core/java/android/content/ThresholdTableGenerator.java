@@ -1,5 +1,12 @@
+package android.content;
+
+import java.io.File;
 import java.util.ArrayList;
-import java.util.Arrays;
+
+import android.util.Log;
+import android.util.Pair;
+
+import com.android.internal.util.FloatMemoryMappedArray;
 
 /**
  * Threshold calculator
@@ -14,27 +21,38 @@ import java.util.Arrays;
  * 
  */
 
-public class ThresholdTableGenerator {
-	private IProfile profile;
+public class ThresholdTableGenerator implements Runnable{
+	private final static String TAG = "ThresholdTableGenerator";
+	private Profile profile;
 	private int horizon;
 	private int maxBattery;
 
-	private float[][][] V;
+	private FloatMemoryMappedArray V;
+
 
 	/* Constants */
 	private float rewardPerRemainEnergy = 0;
 	private int energyPerSync = 1;
 	private float rewardPerOtherUse = 2;
 
-	public ThresholdTableGenerator(IProfile profile) {
+	public ThresholdTableGenerator(Profile profile, File tmp) {
 		this.profile = profile;
 		horizon = profile.getHorizon();
 		maxBattery = profile.getMaxBattery();
 
-		V = new float[horizon][maxBattery][horizon];
-		for (float[][] mat : V)
-			for (float[] row : mat)
-				Arrays.fill(row, -1);
+		Log.d(TAG, String.format("new float[%d][%d][%d]",horizon, maxBattery, horizon));
+		Log.d(TAG, "Creating table");
+		V = new FloatMemoryMappedArray(horizon, maxBattery, horizon, tmp);
+		Log.d(TAG, "Created table");
+
+		new Thread(this).start();
+	}
+
+	@Override
+	public void run() {
+		Log.d(TAG, "Filling table");
+		V.fill(-1.0F);
+		Log.d(TAG, "Filled table");
 	}
 
 	public int[][] getThreshold() {
@@ -95,14 +113,14 @@ public class ThresholdTableGenerator {
 
 			float v;
 			if (syncReward == 0) {
-				if (V[t + 1][E][tau + 1] == -1)
-					V[t + 1][E][tau + 1] = V(t + 1, E, tau + 1);
-				v = V[t + 1][E][tau + 1] + rewardPerOtherUse * used
+				if (V.get(t + 1, E, tau + 1) == -1)
+					V.put(t + 1, E, tau + 1,V(t + 1, E, tau + 1));
+				v = V.get(t + 1, E, tau + 1) + rewardPerOtherUse * used
 						+ syncReward;
 			} else {
-				if (V[t + 1][E][0] == -1)
-					V[t + 1][E][0] = V(t + 1, E, 0);
-				v = V[t + 1][E][0] + rewardPerOtherUse * used + syncReward;
+				if (V.get(t + 1, E, 0) == -1)
+					V.put(t + 1, E, 0, V(t + 1, E, 0));
+				v = V.get(t + 1, E, 0) + rewardPerOtherUse * used + syncReward;
 			}
 
 			reward += prob * v;
@@ -111,7 +129,7 @@ public class ThresholdTableGenerator {
 		return reward;
 	}
 
-	public static void main(String[] args) {
+	/*public static void main(String[] args) {
 		ThresholdTableGenerator th = new ThresholdTableGenerator(
 				new SynthProfile());
 
@@ -126,6 +144,7 @@ public class ThresholdTableGenerator {
 		}
 
 		System.out.println();
-	}
+	}*/
+
 
 }
