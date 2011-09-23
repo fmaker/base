@@ -4581,11 +4581,11 @@ public final class BatteryStatsImpl extends BatteryStats {
     final ReentrantLock mWriteLock = new ReentrantLock();
 
     public void writeAsyncLocked() {
-        writeLocked(false);
+        //writeLocked(false);
     }
 
     public void writeSyncLocked() {
-        writeLocked(true);
+        //writeLocked(true);
     }
 
     void writeLocked(boolean sync) {
