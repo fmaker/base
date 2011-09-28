@@ -1150,6 +1150,164 @@ public abstract class ContentResolver {
     }
 
     /**
+     * TODO fix baffling English...
+     * <p>
+     * Smart sync framework aim to perform just the right amount of syncs so that
+     * you battery will last almost exactly to your next re-charge. The system will
+     * help you find the optimal frequency according to history user power usage and
+     * current battery usage.
+     * <p>
+     * Smart sync will be scheduled for given the account, authority, and extras
+     * automagically. If there is already another smart sync or periodic sync
+     * scheduled with the same account, authority and extras then a new smart sync
+     * won't be added, instead the previous one will be updated to a smart sync with
+     * default minimal sync period.
+     * <p>
+     * These smart syncs honor the "syncAutomatically" and "masterSyncAutomatically"
+     * settings.
+     * <p>
+     * As periodic syncs, smart syncs are not allowed to have any of
+     * {@link #SYNC_EXTRAS_DO_NOT_RETRY}, {@link #SYNC_EXTRAS_IGNORE_BACKOFF},
+     * {@link #SYNC_EXTRAS_IGNORE_SETTINGS}, {@link #SYNC_EXTRAS_INITIALIZE},
+     * {@link #SYNC_EXTRAS_FORCE}, {@link #SYNC_EXTRAS_EXPEDITED},
+     * {@link #SYNC_EXTRAS_MANUAL} set to true. If any are supplied then an
+     * {@link IllegalArgumentException} will be thrown.
+     *
+     * @param account the account to specify in the sync
+     * @param authority the provider to specify in the sync request
+     * @param extras extra parameters to go along with the sync request
+     * @throws IllegalArgumentException if an illegal extra was set or if any of the
+     *             parameters are null.
+     */
+    public static void addSmartSync(Account account, String authority, Bundle extras) {
+        validateSyncExtrasBundle(extras);
+        if (account == null) {
+            throw new IllegalArgumentException("account must not be null");
+        }
+        if (authority == null) {
+            throw new IllegalArgumentException("authority must not be null");
+        }
+        if (extras.getBoolean(SYNC_EXTRAS_MANUAL, false)
+                || extras.getBoolean(SYNC_EXTRAS_DO_NOT_RETRY, false)
+                || extras.getBoolean(SYNC_EXTRAS_IGNORE_BACKOFF, false)
+                || extras.getBoolean(SYNC_EXTRAS_IGNORE_SETTINGS, false)
+                || extras.getBoolean(SYNC_EXTRAS_INITIALIZE, false)
+                || extras.getBoolean(SYNC_EXTRAS_FORCE, false)
+                || extras.getBoolean(SYNC_EXTRAS_EXPEDITED, false)) {
+            throw new IllegalArgumentException("illegal extras were set");
+        }
+        try {
+            getContentService().addSmartSync(account, authority, extras, -1, -1);
+        } catch (RemoteException e) {
+            // exception ignored; if this is thrown then it means the runtime is in the midst of
+            // being restarted
+        }
+    }
+    /**
+     * TODO fix baffling English...
+     * <p>
+     * Smart sync framework aim to perform just the right amount of syncs so that
+     * you battery will last almost exactly to your next re-charge. The system will
+     * help you find the optimal frequency according to history user power usage and
+     * current battery usage.
+     * <p>
+     * Smart sync will be scheduled for given the account, authority, and extras
+     * automagically, taken into consideration given minimum period and maximum
+     * period. If there is already another smart sync or periodic sync scheduled
+     * with the same account, authority and extras then a new smart sync won't be
+     * added, instead the previous one will be updated to a smart sync with default
+     * period.
+     * <p>
+     * These smart syncs honor the "syncAutomatically" and "masterSyncAutomatically"
+     * settings.
+     * <p>
+     * As periodic syncs, smart syncs are not allowed to have any of
+     * {@link #SYNC_EXTRAS_DO_NOT_RETRY}, {@link #SYNC_EXTRAS_IGNORE_BACKOFF},
+     * {@link #SYNC_EXTRAS_IGNORE_SETTINGS}, {@link #SYNC_EXTRAS_INITIALIZE},
+     * {@link #SYNC_EXTRAS_FORCE}, {@link #SYNC_EXTRAS_EXPEDITED},
+     * {@link #SYNC_EXTRAS_MANUAL} set to true. If any are supplied then an
+     * {@link IllegalArgumentException} will be thrown.
+     *
+     * @param account the account to specify in the sync
+     * @param authority the provider to specify in the sync request
+     * @param extras extra parameters to go along with the sync request
+     * @param minPeriod minimum period that sync should be scheduled (that make
+     *            sense)
+     * @param maxPeriod maximum period that sync should be scheduled
+     * @throws IllegalArgumentException if an illegal extra was set or if any of the
+     *             parameters are null.
+     */
+    public static void addSmartSync(Account account, String authority, Bundle extras,
+            long minPeriod, long maxPeriod) {
+        validateSyncExtrasBundle(extras);
+        if (account == null) {
+            throw new IllegalArgumentException("account must not be null");
+        }
+        if (authority == null) {
+            throw new IllegalArgumentException("authority must not be null");
+        }
+        if (extras.getBoolean(SYNC_EXTRAS_MANUAL, false)
+                || extras.getBoolean(SYNC_EXTRAS_DO_NOT_RETRY, false)
+                || extras.getBoolean(SYNC_EXTRAS_IGNORE_BACKOFF, false)
+                || extras.getBoolean(SYNC_EXTRAS_IGNORE_SETTINGS, false)
+                || extras.getBoolean(SYNC_EXTRAS_INITIALIZE, false)
+                || extras.getBoolean(SYNC_EXTRAS_FORCE, false)
+                || extras.getBoolean(SYNC_EXTRAS_EXPEDITED, false)) {
+            throw new IllegalArgumentException("illegal extras were set");
+        }
+        try {
+            getContentService().addSmartSync(account, authority, extras, minPeriod, maxPeriod);
+        } catch (RemoteException e) {
+            // exception ignored; if this is thrown then it means the runtime is in the midst of
+            // being restarted
+        }
+    }
+
+    /**
+     * Remove a smart sync. Has no affect if account, authority and extras don't match
+     * an existing smart sync.
+     *
+     * @param account the account of the periodic sync to remove
+     * @param authority the provider of the periodic sync to remove
+     * @param extras the extras of the periodic sync to remove
+     */
+    public static void removeSmartSync(Account account, String authority, Bundle extras) {
+        validateSyncExtrasBundle(extras);
+        if (account == null) {
+            throw new IllegalArgumentException("account must not be null");
+        }
+        if (authority == null) {
+            throw new IllegalArgumentException("authority must not be null");
+        }
+        try {
+            getContentService().removeSmartSync(account, authority, extras);
+        } catch (RemoteException e) {
+            throw new RuntimeException("the ContentService should always be reachable", e);
+        }
+    }
+
+    /**
+     * Get the list of information about the periodic syncs for the given account and authority.
+     *
+     * @param account the account whose periodic syncs we are querying
+     * @param authority the provider whose periodic syncs we are querying
+     * @return a list of PeriodicSync objects. This list may be empty but will never be null.
+     */
+    public static List<SmartSync> getSmartSyncs(Account account, String authority) {
+        if (account == null) {
+            throw new IllegalArgumentException("account must not be null");
+        }
+        if (authority == null) {
+            throw new IllegalArgumentException("authority must not be null");
+        }
+        try {
+            return getContentService().getSmartSyncs(account, authority);
+        } catch (RemoteException e) {
+            throw new RuntimeException("the ContentService should always be reachable", e);
+        }
+    }
+
+    /**
      * Check if this account/provider is syncable.
      * @return >0 if it is syncable, 0 if not, and <0 if the state isn't known yet.
      */

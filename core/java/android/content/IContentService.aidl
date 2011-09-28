@@ -22,6 +22,7 @@ import android.content.ISyncStatusObserver;
 import android.content.SyncAdapterType;
 import android.content.SyncStatusInfo;
 import android.content.PeriodicSync;
+import android.content.SmartSync;
 import android.net.Uri;
 import android.os.Bundle;
 import android.database.IContentObserver;
@@ -58,7 +59,7 @@ interface IContentService {
     /**
      * Get the frequency of the periodic poll, if any.
      * @param providerName the provider whose setting we are querying
-     * @return the frequency of the periodic sync in seconds. If 0 then no periodic syncs
+     * @return a list of the periodic syncs, empty if no periodic syncs
      * will take place.
      */
     List<PeriodicSync> getPeriodicSyncs(in Account account, String providerName);
@@ -81,6 +82,32 @@ interface IContentService {
      * zero or less then no periodic syncs will be performed.
      */
     void removePeriodicSync(in Account account, String providerName, in Bundle extras);
+
+    /**
+     * Get the info of the smart sync, if any.
+     * @param account the account whose setting we are querying
+     * @param providerName the provider whose setting we are querying
+     * @return a list of the smart syncs, empty if no smart syncs.
+     * will take place.
+     */
+    List<SmartSync> getSmartSyncs(in Account account, String providerName);
+
+    /**
+     * Set whether or not the provider is to be synced with smart sync framework.
+     *
+     * @param account the account whose setting we are querying
+     * @param providerName the provider whose behavior is being controlled
+     * @param minPeriod the minimum period that a sync should be performed, in seconds. If this is
+     * zero or less then zero will be used.
+     */
+    void addSmartSync(in Account account, String providerName, in Bundle extras,
+      long minPeriod, long maxPeriod);
+
+    /**
+     * Set whether or not the provider is to be synced with smart sync framework.
+     *
+     */
+    void removeSmartSync(in Account account, String providerName, in Bundle extras);
 
     /**
      * Check if this account/provider is syncable.

@@ -19,12 +19,13 @@ package android.content;
 import android.os.Parcel;
 import android.os.Parcelable;
 import android.util.Log;
+import android.util.Pair;
 
 import java.util.ArrayList;
 
 /** @hide */
 public class SyncStatusInfo implements Parcelable {
-    static final int VERSION = 2;
+    static final int VERSION = 3;
 
     public final int authorityId;
     public long totalElapsedTime;
@@ -43,6 +44,7 @@ public class SyncStatusInfo implements Parcelable {
     public boolean pending;
     public boolean initialize;
     public ArrayList<Long> periodicSyncTimes;
+    public ArrayList<Long> smartSyncTimes;
 
     private static final String TAG = "Sync";
 
@@ -90,6 +92,14 @@ public class SyncStatusInfo implements Parcelable {
         } else {
             parcel.writeInt(-1);
         }
+        if (smartSyncTimes != null) {
+            parcel.writeInt(smartSyncTimes.size());
+            for (Long smartSyncTime : smartSyncTimes) {
+                parcel.writeLong(smartSyncTime);
+            }
+        } else {
+            parcel.writeInt(-1);
+        }
     }
 
     SyncStatusInfo(Parcel parcel) {
@@ -114,7 +124,7 @@ public class SyncStatusInfo implements Parcelable {
         initialize = parcel.readInt() != 0;
         if (version == 1) {
             periodicSyncTimes = null;
-        } else {
+        } else if (version >= 2){
             int N = parcel.readInt();
             if (N < 0) {
                 periodicSyncTimes = null;
@@ -124,7 +134,47 @@ public class SyncStatusInfo implements Parcelable {
                     periodicSyncTimes.add(parcel.readLong());
                 }
             }
+        } else {
+            int N = parcel.readInt();
+            if (N < 0) {
+                smartSyncTimes = null;
+            } else {
+                smartSyncTimes = new ArrayList<Long>();
+                for (int i=0; i<N; i++) {
+                    smartSyncTimes.add(parcel.readLong());
+                }
+            }
         }
+    }
+    
+    public void setSmartSyncTime(int index, long when) {
+        ensureSmartSyncTimeSize(index);
+        smartSyncTimes.set(index, when);
+    }
+
+    private void ensureSmartSyncTimeSize(int index) {
+        if (smartSyncTimes == null) {
+            smartSyncTimes = new ArrayList<Long>(0);
+        }
+
+        final int requiredSize = index + 1;
+        if (smartSyncTimes.size() < requiredSize) {
+            for (int i = smartSyncTimes.size(); i < requiredSize; i++) {
+                smartSyncTimes.add((long) 0);
+            }
+        }
+    }
+
+    public long getSmartSyncTime(int index) {
+        if (smartSyncTimes == null || smartSyncTimes.size() < (index + 1)) {
+            return 0;
+        }
+        return smartSyncTimes.get(index);
+    }
+
+    public void removeSmartSyncTime(int index) {
+        ensureSmartSyncTimeSize(index);
+        smartSyncTimes.remove(index);
     }
 
     public void setPeriodicSyncTime(int index, long when) {

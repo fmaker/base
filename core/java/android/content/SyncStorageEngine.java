@@ -38,6 +38,7 @@ import android.os.RemoteCallbackList;
 import android.os.RemoteException;
 import android.util.Log;
 import android.util.SparseArray;
+import android.util.Triple;
 import android.util.Xml;
 import android.util.Pair;
 
@@ -93,6 +94,9 @@ public class SyncStorageEngine extends Handler {
     /** Enum value for a periodic sync. */
     public static final int SOURCE_PERIODIC = 4;
 
+    /** Enum value for a smart sync. */
+    public static final int SOURCE_SMART = 4;
+
     public static final long NOT_IN_BACKOFF_MODE = -1;
 
     public static final Intent SYNC_CONNECTION_SETTING_CHANGED_INTENT =
@@ -104,7 +108,8 @@ public class SyncStorageEngine extends Handler {
                                              "LOCAL",
                                              "POLL",
                                              "USER",
-                                             "PERIODIC" };
+                                             "PERIODIC",
+                                             "SMART"};
 
     // The MESG column will contain one of these or one of the Error types.
     public static final String MESG_SUCCESS = "success";
@@ -181,6 +186,7 @@ public class SyncStorageEngine extends Handler {
         long backoffDelay;
         long delayUntil;
         final ArrayList<Pair<Bundle, Long>> periodicSyncs;
+        final ArrayList<Triple<Bundle, Long, Long>> smartSyncs;
 
         AuthorityInfo(Account account, String authority, int ident) {
             this.account = account;
@@ -192,6 +198,7 @@ public class SyncStorageEngine extends Handler {
             backoffDelay = -1; // if < 0 then we aren't in backoff mode
             periodicSyncs = new ArrayList<Pair<Bundle, Long>>();
             periodicSyncs.add(Pair.create(new Bundle(), DEFAULT_POLL_FREQUENCY_SECONDS));
+            smartSyncs = new ArrayList<Triple<Bundle, Long, Long>>();
         }
     }
 
@@ -283,6 +290,9 @@ public class SyncStorageEngine extends Handler {
 
     private int mNextHistoryId = 0;
     private boolean mMasterSyncAutomatically = true;
+    // TODO what's the default value?
+    // This should be the time granularity of the decision table
+    private long mMinSmartSyncPeriod = 60*2;
 
     private SyncStorageEngine(Context context, File dataDir) {
         mContext = context;
@@ -673,6 +683,114 @@ public class SyncStorageEngine extends Handler {
         return syncs;
     }
 
+    private void updateOrRemoveSmartSync(Account account, String providerName, Bundle extras,
+            long minPeriod, long maxPeriod, boolean add) {
+        if (maxPeriod < minPeriod){
+            maxPeriod = minPeriod;
+        }
+        // TODO 0 or mMinSmartSyncPeriod?
+        if (minPeriod < 0) {
+            minPeriod = mMinSmartSyncPeriod;
+        }
+        if (maxPeriod < 0){
+            maxPeriod = DEFAULT_POLL_FREQUENCY_SECONDS;
+        }
+        if(minPeriod == maxPeriod){
+            updateOrRemovePeriodicSync(account, providerName, extras, minPeriod, add);
+        }
+        if (extras == null) {
+            extras = new Bundle();
+        }
+        if (Log.isLoggable(TAG, Log.VERBOSE)) {
+            Log.v(TAG, "updateOrRemoveSmartSync: " + account + ", provider " + providerName
+                    + " -> min period " + minPeriod + ", max period " + maxPeriod
+                    + ", extras " + extras);
+        }
+        synchronized (mAuthorities) {
+            try {
+                AuthorityInfo authority =
+                        getOrCreateAuthorityLocked(account, providerName, -1, false);
+                if (add) {
+                    // add this smart sync if one with the same extras doesn't already
+                    // exist in the smartSyncs array
+                    boolean alreadyPresent = false;
+                    for (int i = 0, N = authority.smartSyncs.size(); i < N; i++) {
+                        Triple<Bundle, Long, Long> smartInfo = authority.smartSyncs.get(i);
+                        final Bundle existingExtras = smartInfo.first;
+                        if (equals(existingExtras, extras)) {
+                            if (smartInfo.second == minPeriod && smartInfo.third == maxPeriod) {
+                                return;
+                            }
+                            authority.smartSyncs.set(i, Triple.create(extras, minPeriod, maxPeriod));
+                            alreadyPresent = true;
+                            break;
+                        }
+                    }
+                    // if we added an entry to the smartSyncs array also add an entry to
+                    // the smart syncs status to correspond to it
+                    Log.v(TAG,"alreadyPresent = " + alreadyPresent);
+                    if (!alreadyPresent) {
+                        authority.smartSyncs.add(Triple.create(extras, minPeriod, maxPeriod));
+                        SyncStatusInfo status = getOrCreateSyncStatusLocked(authority.ident);
+                        status.setSmartSyncTime(authority.smartSyncs.size() - 1, 0);
+                        Log.v(TAG,"authority.smartSyncs.size() = " + authority.smartSyncs.size());
+                    }
+                } else {
+                    // remove any smart syncs that match the authority and extras
+                    SyncStatusInfo status = mSyncStatus.get(authority.ident);
+                    boolean changed = false;
+                    Iterator<Triple<Bundle, Long, Long>> iterator = authority.smartSyncs.iterator();
+                    int i = 0;
+                    while (iterator.hasNext()) {
+                        Triple<Bundle, Long, Long> syncInfo = iterator.next();
+                        if (equals(syncInfo.first, extras)) {
+                            iterator.remove();
+                            changed = true;
+                            // if we removed an entry from the smartSyncs array also
+                            // remove the corresponding entry from the status
+                            if (status != null) {
+                                status.removeSmartSyncTime(i);
+                            }
+                        } else {
+                            i++;
+                        }
+                    }
+                    if (!changed) {
+                        return;
+                    }
+                }
+            } finally {
+                writeAccountInfoLocked();
+                writeStatusLocked();
+            }
+        }
+
+        reportChange(ContentResolver.SYNC_OBSERVER_TYPE_SETTINGS);
+    }
+
+    public void addSmartSync(Account account, String providerName, Bundle extras,
+            long minPeriod, long maxPeriod) {
+        updateOrRemoveSmartSync(account, providerName, extras, minPeriod, maxPeriod, true /* add */);
+    }
+
+    public void removeSmartSync(Account account, String providerName, Bundle extras) {
+        updateOrRemoveSmartSync(account, providerName, extras, -1 /* period, ignored */,
+                -1/* period, ignored */, false /* remove */);
+    }
+
+    public List<SmartSync> getSmartSyncs(Account account, String providerName) {
+        ArrayList<SmartSync> syncs = new ArrayList<SmartSync>();
+        synchronized (mAuthorities) {
+            AuthorityInfo authority = getAuthorityLocked(account, providerName, "getSmartSyncs");
+            if (authority != null) {
+                for (Triple<Bundle, Long, Long> item : authority.smartSyncs) {
+                    syncs.add(new SmartSync(account, providerName, item.first, item.second, item.third));
+                }
+            }
+        }
+        return syncs;
+    }
+
     public void setMasterSyncAutomatically(boolean flag) {
         synchronized (mAuthorities) {
             if (mMasterSyncAutomatically == flag) {
@@ -693,6 +811,35 @@ public class SyncStorageEngine extends Handler {
             return mMasterSyncAutomatically;
         }
     }
+
+    public void setmDefaultMinSmartSyncPeriod(long period) {
+        if (mMinSmartSyncPeriod != period) {
+            // TODO not sure if we need to use global lock mAuthorities
+            synchronized (mAuthorities) {
+                mMinSmartSyncPeriod = period;
+            }
+
+            // TODO the change of smart poll period should would require a
+            // a full system level resync?
+            ContentResolver.requestSync(null, null, new Bundle());
+        }
+        else{
+            return;
+        }
+
+        // TODO this equal to: a set of authorities changed their sync period
+        reportChange(ContentResolver.SYNC_OBSERVER_TYPE_SETTINGS);
+        // TODO so does this one needed? probably not
+        //mContext.sendBroadcast(SYNC_CONNECTION_SETTING_CHANGED_INTENT);
+    }
+
+    public long getmDefaultMinSmartSyncPeriod() {
+        // TODO not sure if we need to use global lock mAuthorities
+        synchronized (mAuthorities) {
+            return mMinSmartSyncPeriod;
+        }
+    }
+
 
     public AuthorityInfo getOrCreateAuthority(Account account, String authority) {
         synchronized (mAuthorities) {
@@ -1442,6 +1589,7 @@ public class SyncStorageEngine extends Handler {
                 eventType = parser.next();
                 AuthorityInfo authority = null;
                 Pair<Bundle, Long> periodicSync = null;
+                Triple<Bundle, Long, Long> smartSync = null;
                 do {
                     if (eventType == XmlPullParser.START_TAG) {
                         tagName = parser.getName();
@@ -1456,10 +1604,30 @@ public class SyncStorageEngine extends Handler {
                         } else if (parser.getDepth() == 3) {
                             if ("periodicSync".equals(tagName) && authority != null) {
                                 periodicSync = parsePeriodicSync(parser, authority);
+
+                                eventType = parser.next();
+                                if (parser.getDepth() == 4 && periodicSync != null
+                                        && "extra".equals(tagName)) {
+                                    parsePeriodicExtra(parser, periodicSync);
+                                } else {
+                                    continue;
+                                }
+                            }
+                            else if ("smartSync".equals(tagName) && authority != null
+                                    && "periodicSync".equals(tagName) ) {
+                                smartSync = parseSmartSync(parser, authority);
+
+                                eventType = parser.next();
+                                if (parser.getDepth() == 4 && smartSync != null
+                                        && "extra".equals(tagName)) {
+                                    parseSmartExtra(parser, smartSync);
+                                } else {
+                                    continue;
+                                }
                             }
                         } else if (parser.getDepth() == 4 && periodicSync != null) {
                             if ("extra".equals(tagName)) {
-                                parseExtra(parser, periodicSync);
+                                parsePeriodicExtra(parser, periodicSync);
                             }
                         }
                     }
@@ -1571,6 +1739,8 @@ public class SyncStorageEngine extends Handler {
                 if (version > 0) {
                     authority.periodicSyncs.clear();
                 }
+                // If the version is 2 then we are upgrading from a file format that did not
+                // know about smart syncs. It's OK to leave it blank.
             }
             if (authority != null) {
                 authority.enabled = enabled == null || Boolean.parseBoolean(enabled);
@@ -1610,8 +1780,59 @@ public class SyncStorageEngine extends Handler {
         return periodicSync;
     }
 
-    private void parseExtra(XmlPullParser parser, Pair<Bundle, Long> periodicSync) {
+    private void parsePeriodicExtra(XmlPullParser parser, Pair<Bundle, Long> periodicSync) {
         final Bundle extras = periodicSync.first;
+        String name = parser.getAttributeValue(null, "name");
+        String type = parser.getAttributeValue(null, "type");
+        String value1 = parser.getAttributeValue(null, "value1");
+        String value2 = parser.getAttributeValue(null, "value2");
+
+        try {
+            if ("long".equals(type)) {
+                extras.putLong(name, Long.parseLong(value1));
+            } else if ("integer".equals(type)) {
+                extras.putInt(name, Integer.parseInt(value1));
+            } else if ("double".equals(type)) {
+                extras.putDouble(name, Double.parseDouble(value1));
+            } else if ("float".equals(type)) {
+                extras.putFloat(name, Float.parseFloat(value1));
+            } else if ("boolean".equals(type)) {
+                extras.putBoolean(name, Boolean.parseBoolean(value1));
+            } else if ("string".equals(type)) {
+                extras.putString(name, value1);
+            } else if ("account".equals(type)) {
+                extras.putParcelable(name, new Account(value1, value2));
+            }
+        } catch (NumberFormatException e) {
+            Log.e(TAG, "error parsing bundle value", e);
+        } catch (NullPointerException e) {
+            Log.e(TAG, "error parsing bundle value", e);
+        }
+    }
+
+    private Triple<Bundle, Long, Long> parseSmartSync(XmlPullParser parser, AuthorityInfo authority) {
+        Bundle extras = new Bundle();
+        String minPeriodStr = parser.getAttributeValue(null, "minPeriod");
+        String maxPeriodStr = parser.getAttributeValue(null, "maxPeriod");
+        final long minPeriod, maxPeriod;
+        try {
+            minPeriod = Long.parseLong(minPeriodStr);
+            maxPeriod = Long.parseLong(maxPeriodStr);
+        } catch (NumberFormatException e) {
+            Log.e(TAG, "error parsing the periods of a smart sync", e);
+            return null;
+        } catch (NullPointerException e) {
+            Log.e(TAG, "the periods of a smart sync is null", e);
+            return null;
+        }
+        final Triple<Bundle, Long, Long> smartSync = Triple.create(extras, minPeriod, maxPeriod);
+        authority.smartSyncs.add(smartSync);
+
+        return smartSync;
+    }
+
+    private void parseSmartExtra(XmlPullParser parser, Triple<Bundle, Long, Long> smartSync) {
+        final Bundle extras = smartSync.first;
         String name = parser.getAttributeValue(null, "name");
         String type = parser.getAttributeValue(null, "type");
         String value1 = parser.getAttributeValue(null, "value1");
@@ -1709,6 +1930,42 @@ public class SyncStorageEngine extends Handler {
                         out.endTag(null, "extra");
                     }
                     out.endTag(null, "periodicSync");
+                }
+                for (Triple<Bundle, Long, Long> smartSync : authority.smartSyncs) {
+                    out.startTag(null, "smartSync");
+                    out.attribute(null, "minPeriod", Long.toString(smartSync.second));
+                    out.attribute(null, "maxPeriod", Long.toString(smartSync.third));
+                    final Bundle extras = smartSync.first;
+                    for (String key : extras.keySet()) {
+                        out.startTag(null, "extra");
+                        out.attribute(null, "name", key);
+                        final Object value = extras.get(key);
+                        if (value instanceof Long) {
+                            out.attribute(null, "type", "long");
+                            out.attribute(null, "value1", value.toString());
+                        } else if (value instanceof Integer) {
+                            out.attribute(null, "type", "integer");
+                            out.attribute(null, "value1", value.toString());
+                        } else if (value instanceof Boolean) {
+                            out.attribute(null, "type", "boolean");
+                            out.attribute(null, "value1", value.toString());
+                        } else if (value instanceof Float) {
+                            out.attribute(null, "type", "float");
+                            out.attribute(null, "value1", value.toString());
+                        } else if (value instanceof Double) {
+                            out.attribute(null, "type", "double");
+                            out.attribute(null, "value1", value.toString());
+                        } else if (value instanceof String) {
+                            out.attribute(null, "type", "string");
+                            out.attribute(null, "value1", value.toString());
+                        } else if (value instanceof Account) {
+                            out.attribute(null, "type", "account");
+                            out.attribute(null, "value1", ((Account)value).name);
+                            out.attribute(null, "value2", ((Account)value).type);
+                        }
+                        out.endTag(null, "extra");
+                    }
+                    out.endTag(null, "smartSync");
                 }
                 out.endTag(null, "authority");
             }

@@ -46,7 +46,7 @@ public:
 
     static int32_t getGlobalCount();
     static String8 getAssetAllocations();
-    
+
     /* used when opening an asset */
     typedef enum AccessMode {
         ACCESS_UNKNOWN = 0,
@@ -61,6 +61,14 @@ public:
         ACCESS_BUFFER,
     } AccessMode;
 
+    enum {
+        /* data larger than this does not get uncompressed into a buffer */
+#ifdef HAVE_ANDROID_OS
+        UNCOMPRESS_DATA_MAX = 4 * 1024 * 1024
+#else
+        UNCOMPRESS_DATA_MAX = 8 * 1024 * 1024
+#endif
+    };
     /*
      * Read data from the current offset.  Returns the actual number of
      * bytes read, 0 on EOF, or -1 on error.
@@ -100,13 +108,13 @@ public:
      * asset is compressed).
      */
     virtual int openFileDescriptor(off_t* outStart, off_t* outLength) const = 0;
-    
+
     /*
      * Return whether this asset's buffer is allocated in RAM (not mmapped).
      * Note: not virtual so it is safe to call even when being destroyed.
      */
     virtual bool isAllocated(void) const { return false; }
-    
+
     /*
      * Get a string identifying the asset's source.  This might be a full
      * path, it might be a colon-separated list of identifiers.
@@ -195,7 +203,7 @@ private:
 
     AccessMode  mAccessMode;        // how the asset was opened
     String8    mAssetSource;       // debug string
-    
+
     Asset*		mNext;				// linked list.
     Asset*		mPrev;
 };
@@ -258,7 +266,7 @@ private:
 
     FileMap*    mMap;           // for memory map
     unsigned char* mBuf;        // for read
-    
+
     const void* ensureAlignment(FileMap* map);
 };
 

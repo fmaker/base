@@ -310,6 +310,42 @@ public final class ContentService extends IContentService.Stub {
         }
     }
 
+    public void addSmartSync(Account account, String authority, Bundle extras,
+            long minPeriod, long maxPeriod) {
+        mContext.enforceCallingOrSelfPermission(Manifest.permission.WRITE_SYNC_SETTINGS,
+                "no permission to write the sync settings");
+        long identityToken = clearCallingIdentity();
+        try {
+            getSyncManager().getSyncStorageEngine().addSmartSync(
+                    account, authority, extras, minPeriod, maxPeriod);
+        } finally {
+            restoreCallingIdentity(identityToken);
+        }
+    }
+
+    public void removeSmartSync(Account account, String authority, Bundle extras) {
+        mContext.enforceCallingOrSelfPermission(Manifest.permission.WRITE_SYNC_SETTINGS,
+                "no permission to write the sync settings");
+        long identityToken = clearCallingIdentity();
+        try {
+            getSyncManager().getSyncStorageEngine().removeSmartSync(account, authority, extras);
+        } finally {
+            restoreCallingIdentity(identityToken);
+        }
+    }
+
+    public List<SmartSync> getSmartSyncs(Account account, String providerName) {
+        mContext.enforceCallingOrSelfPermission(Manifest.permission.READ_SYNC_SETTINGS,
+                "no permission to read the sync settings");
+        long identityToken = clearCallingIdentity();
+        try {
+            return getSyncManager().getSyncStorageEngine().getSmartSyncs(
+                    account, providerName);
+        } finally {
+            restoreCallingIdentity(identityToken);
+        }
+    }
+
     public int getIsSyncable(Account account, String providerName) {
         mContext.enforceCallingOrSelfPermission(Manifest.permission.READ_SYNC_SETTINGS,
                 "no permission to read the sync settings");
