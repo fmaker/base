@@ -40,9 +40,7 @@ public class Profile {
 	private static final long SECS_PER_MIN = 60;
 
 	private BatteryStats mStats;
-	public PowerProfile mPowerProfile;
 	private PowerProfile mProfile;
-	private IBatteryStats mBatteryInfo;
 	private final boolean debug = true;
 
 	
@@ -60,24 +58,6 @@ public class Profile {
 	public Profile(Context context) {
 
 		mProfile = new PowerProfile(context);
-
-		mBatteryInfo = IBatteryStats.Stub.asInterface(ServiceManager
-				.getService("batteryinfo"));
-
-		byte[] data;
-		try {
-			Log.d(TAG, "getStatistics()");
-			data = mBatteryInfo.getStatistics();
-			Parcel parcel = Parcel.obtain();
-			Log.d(TAG, "unmarshall()");
-			parcel.unmarshall(data, 0, data.length);
-			parcel.setDataPosition(0);
-			Log.d(TAG, "createFromParcel()");
-			mStats = com.android.internal.os.BatteryStatsImpl.CREATOR
-					.createFromParcel(parcel);
-		} catch (RemoteException e) {
-			Log.e(TAG, "RemoteException:", e);
-		}
 
 		/* Load battery stats */
 		load();
@@ -123,6 +103,9 @@ public class Profile {
 	}
 
 	private void load() {
+
+		IBatteryStats mBatteryInfo = IBatteryStats.Stub.asInterface(ServiceManager.getService("batteryinfo"));
+
 		try {
 			byte[] data = mBatteryInfo.getStatistics();
 			Parcel parcel = Parcel.obtain();
@@ -130,7 +113,6 @@ public class Profile {
 			parcel.setDataPosition(0);
 			mStats = com.android.internal.os.BatteryStatsImpl.CREATOR
 					.createFromParcel(parcel);
-			// mStats.distributeWorkLocked(BatteryStats.STATS_SINCE_CHARGED);
 		} catch (RemoteException e) {
 			Log.e(TAG, "RemoteException:", e);
 		}
