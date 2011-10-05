@@ -21,21 +21,22 @@ import com.android.internal.util.FloatMemoryMappedArray;
  * 
  */
 
-public class ThresholdTableGenerator implements Runnable{
+public class ThresholdTable{
 	private final static String TAG = "ThresholdTableGenerator";
 	private Profile profile;
 	private int horizon;
 	private int maxBattery;
+	private boolean ready = false;
 
 	private FloatMemoryMappedArray V;
-
+	private int[][] mTable;
 
 	/* Constants */
 	private float rewardPerRemainEnergy = 0;
 	private int energyPerSync = 1;
 	private float rewardPerOtherUse = 2;
 
-	public ThresholdTableGenerator(Profile profile, File tmp) {
+	public ThresholdTable(Profile profile, File tmp) {
 		this.profile = profile;
 		horizon = profile.getHorizon();
 		maxBattery = profile.getMaxBattery();
@@ -45,33 +46,55 @@ public class ThresholdTableGenerator implements Runnable{
 		V = new FloatMemoryMappedArray(horizon, maxBattery, horizon, tmp);
 		Log.d(TAG, "Created table");
 
-		new Thread(this).start();
+		Log.d(TAG, "Generate...");
+		generate();
+		Log.d(TAG, "Generated.");
+	}
+	
+	public int getThreshold(int t, int Er){
+		return mTable[t][Er];
+	}
+	
+	private void generate(){
+		new Thread(new Runnable() {
+			
+			@Override
+			public void run() {
+				Log.d(TAG, "Initializing table...");
+				V.fill(-1.0F);
+				Log.d(TAG, "Initialized table.");
+
+				Log.d(TAG, "Generating table...");
+				generateTable();
+				Log.d(TAG, "Generated table.");
+				
+			}
+		}).start();
 	}
 
-	@Override
-	public void run() {
-		Log.d(TAG, "Filling table");
-		V.fill(-1.0F);
-		Log.d(TAG, "Filled table");
-	}
+	private synchronized void generateTable() {
 
-	public int[][] getThreshold() {
-		int[][] threshold = new int[horizon][maxBattery];
+		if(ready){
+			ready = false;
 
-		for (int t = horizon - 1; t >= 0; t--) {
-			for (int Er = 0; Er < maxBattery; Er++) {
-				threshold[t][Er] = horizon;
-				for (int tau = 0; tau <= t; tau++) {
-					float Vs = reward(t, Er, tau, true);
-					float Vi = reward(t, Er, tau, false);
-					if (Vs > Vi) {
-						threshold[t][Er] = tau;
-						break;
+			int[][] threshold = new int[horizon][maxBattery];
+	
+			for (int t = horizon - 1; t >= 0; t--) {
+				for (int Er = 0; Er < maxBattery; Er++) {
+					threshold[t][Er] = horizon;
+					for (int tau = 0; tau <= t; tau++) {
+						float Vs = reward(t, Er, tau, true);
+						float Vi = reward(t, Er, tau, false);
+						if (Vs > Vi) {
+							threshold[t][Er] = tau;
+							break;
+						}
 					}
 				}
 			}
+			mTable = threshold;
+			ready = true;
 		}
-		return threshold;
 	}
 
 	private float V(int t, int Er, int tau) {

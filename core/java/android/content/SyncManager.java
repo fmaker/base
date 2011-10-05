@@ -16,8 +16,15 @@
 
 package android.content;
 
-import com.android.internal.R;
-import com.android.internal.util.ArrayUtils;
+import java.io.File;
+import java.io.FileDescriptor;
+import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Random;
+import java.util.concurrent.CountDownLatch;
 
 import android.accounts.Account;
 import android.accounts.AccountManager;
@@ -28,10 +35,10 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
-import android.content.pm.ResolveInfo;
-import android.content.pm.RegisteredServicesCache;
 import android.content.pm.ProviderInfo;
+import android.content.pm.RegisteredServicesCache;
 import android.content.pm.RegisteredServicesCacheListener;
+import android.content.pm.ResolveInfo;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.Bundle;
@@ -54,14 +61,8 @@ import android.util.Log;
 import android.util.Pair;
 import android.util.Triple;
 
-import java.io.FileDescriptor;
-import java.io.PrintWriter;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Random;
-import java.util.Collection;
-import java.util.concurrent.CountDownLatch;
+import com.android.internal.R;
+import com.android.internal.util.ArrayUtils;
 
 /**
  * @hide
@@ -159,6 +160,16 @@ public class SyncManager implements OnAccountsUpdateListener {
     private ConnectivityManager mConnManagerDoNotUseDirectly;
 
     private final SyncAdaptersCache mSyncAdapters;
+    
+    private ThresholdTable mSmartSyncThresholdTable;
+
+
+    private BroadcastReceiver mBatteryChangedReceiver =
+            new BroadcastReceiver() {
+        public void onReceive(Context context, Intent intent) {
+            Log.w(TAG, "Receiving battery status update...");
+        }
+    };
 
     private BroadcastReceiver mStorageIntentReceiver =
             new BroadcastReceiver() {
@@ -334,6 +345,18 @@ public class SyncManager implements OnAccountsUpdateListener {
                 }
             }
         }, mSyncHandler);
+        
+        Log.d(TAG, "Creating threshold table");
+        try{
+	        File swapFile = context.getDir("thresholdtable.swp", context.MODE_PRIVATE);
+	        Profile p = new Profile(context);
+	        mSmartSyncThresholdTable = new ThresholdTable(p, swapFile);
+	        Log.d(TAG, "Threshold table generating for 1st time...");
+    	}
+        catch(SecurityException se){
+        	Log.d(TAG, "BATTERY_STATS permission denied!");
+        	se.printStackTrace();
+        }
 
         mSyncAlarmIntent = PendingIntent.getBroadcast(
                 mContext, 0 /* ignored */, new Intent(ACTION_SYNC_ALARM), 0);
@@ -356,6 +379,9 @@ public class SyncManager implements OnAccountsUpdateListener {
         intentFilter = new IntentFilter(Intent.ACTION_SHUTDOWN);
         intentFilter.setPriority(100);
         context.registerReceiver(mShutdownIntentReceiver, intentFilter);
+
+        intentFilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+        context.registerReceiver(mBatteryChangedReceiver, intentFilter);
 
         if (!factoryTest) {
             mNotificationMgr = (NotificationManager)

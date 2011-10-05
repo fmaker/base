@@ -15,6 +15,7 @@ import android.os.RemoteException;
 import android.os.ServiceManager;
 import android.util.Log;
 import android.util.Pair;
+import android.util.Slog;
 
 import com.android.internal.app.IBatteryStats;
 import com.android.internal.os.PowerProfile;
@@ -104,17 +105,20 @@ public class Profile {
 
 	private void load() {
 
+		Slog.d(TAG, "Get battery info service.");
 		IBatteryStats mBatteryInfo = IBatteryStats.Stub.asInterface(ServiceManager.getService("batteryinfo"));
 
 		try {
+			Slog.d(TAG, "Get battery stats");
 			byte[] data = mBatteryInfo.getStatistics();
 			Parcel parcel = Parcel.obtain();
 			parcel.unmarshall(data, 0, data.length);
 			parcel.setDataPosition(0);
+			Slog.d(TAG, "Create battery stats object from Parcel");
 			mStats = com.android.internal.os.BatteryStatsImpl.CREATOR
 					.createFromParcel(parcel);
 		} catch (RemoteException e) {
-			Log.e(TAG, "RemoteException:", e);
+			Slog.e(TAG, "RemoteException:", e);
 		}
 	}
 	
