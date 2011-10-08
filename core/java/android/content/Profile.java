@@ -3,6 +3,7 @@ package android.content;
 import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.OutputStream;
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -36,6 +37,7 @@ public class Profile {
 	private static final int SECS_IN_MIN = 60;
 	private static final int SECS_IN_HOUR = 60 * SECS_IN_MIN;
 	private static final int MIN_HORIZON = 9 * 60;
+	private static final int MIN_CHARGE_DURATION = 5 * 60;
 	private static final int SCALE = 100;
 	private static final int BIN_WIDTH = 60 * 5;
 	private static final float MILLI = 1000.0F;
@@ -64,39 +66,40 @@ public class Profile {
 
 		/* Load battery stats */
 		load();
-		
+
 		/* Create and load bins */
 		bins = new HashMap<Integer, HashMap<Float,Integer>>();
 		fillBins();
-		
+
 		/* Find length of discharge times */
 		chargeTimes = new ArrayList<Integer>();
 		findChargeTimes();
-		
+
 		if(debug){
 			FileOutputStream f;
 			try {
-				f = new FileOutputStream(new File("/sdcard/Profile.java/","history_items.dat"));
+				f = new FileOutputStream(new File("/data/data/","history_items.dat"));
 				debugHistoryItems(f);
-			} catch (FileNotFoundException e) {
-				e.printStackTrace();
-			}
-			try {
-				f = new FileOutputStream(new File("/sdcard/Profile.java/","bins.dat"));
+				f.flush();
+				f.close();
+
+				f = new FileOutputStream(new File("/data/data/","bins.dat"));
 				debugBins(f);
-			} catch (FileNotFoundException e) {
-				e.printStackTrace();
-			}
-			try {
-				f = new FileOutputStream(new File("/sdcard/Profile.java/","charge_prob.dat"));
+				f.flush();
+				f.close();
+
+				f = new FileOutputStream(new File("/data/data/","charge_prob.dat"));
 				debugChargeProb(f);
+				f.flush();
+				f.close();
+
+				f = new FileOutputStream(new File("/data/data/","energy_used.dat"));
+				debugEnergyUsed(f);
+				f.flush();
+				f.close();
 			} catch (FileNotFoundException e) {
 				e.printStackTrace();
-			}
-			try {
-				f = new FileOutputStream(new File("/sdcard/Profile.java/","energy_used.dat"));
-				debugEnergyUsed(f);
-			} catch (FileNotFoundException e) {
+			} catch (IOException e){
 				e.printStackTrace();
 			}
 		}
@@ -149,8 +152,8 @@ public class Profile {
 				if(lastStatus == BatteryManager.BATTERY_STATUS_DISCHARGING &&
 						status == BatteryManager.BATTERY_STATUS_CHARGING){
 					final long duration = timestamp - startTime;
-					chargeTimes.add((int) (duration/MILLI/SECS_PER_MIN));
-					//Log.d(TAG, String.format("Found discharge duration: %.4f s = %.4f h",duration/MILLI,duration/MILLI/60/60));
+					if(duration >= MIN_CHARGE_DURATION)
+						chargeTimes.add((int) (duration));
 				}
 				
 				/* Save state for next */
@@ -178,33 +181,38 @@ public class Profile {
 				percent = (float) rec.batteryLevel / (float) SCALE;
 
 				/* Get relative timestamp */
-				final int timestamp = (int) ((rec.time - offset) / MILLI);
+				final int timestamp = (int) (rec.time - offset);
+				Log.d(TAG, timestamp+" ("+rec.time+"),"+rec.batteryLevel);
+				
+				if(timestamp > 0){
 
-				/* Check if operating on battery and that percent is decreasing */
-				if (rec.batteryStatus == BatteryManager.BATTERY_STATUS_DISCHARGING
-						&& lastPercent > percent && !first) {
-
-					/* Add energy used to bin if level changed */
-					energy = (float) (fullBattery * (lastPercent - percent));
-					add(timestamp, energy);
-
-				}
-				/* Otherwise charging */
-				else if (percent > lastPercent || first) {
-
-					/* Calculate full battery based on current voltage level */
-					final float voltage = (float) rec.batteryVoltage / MILLI;
-					fullBattery = (float) (mProfile.getBatteryCapacity()
-							/ MILLI * SECS_IN_HOUR * voltage);
-
-					/*
-					 * Next event will the first discharge so we need to
-					 * remember the time offset
-					 */
-					offset = rec.time;
-
-					/* Need to force initialization on the first run only */
-					first = false;
+					/* Check if operating on battery and that percent is decreasing */
+					if (rec.batteryStatus == BatteryManager.BATTERY_STATUS_DISCHARGING
+							&& lastPercent > percent && !first) {
+	
+						/* Add energy used to bin if level changed */
+						energy = (float) (fullBattery * (lastPercent - percent));
+						add(timestamp, energy);
+	
+					}
+					/* Otherwise charging */
+					else if (percent > lastPercent || first) {
+	
+						/* Calculate full battery based on current voltage level */
+						//final float voltage = (float) rec.batteryVoltage / MILLI;
+						final float voltage = 3.7F;
+						fullBattery = (float) (mProfile.getBatteryCapacity()
+								/ MILLI * SECS_IN_HOUR * voltage);
+	
+						/*
+						 * Next event could be first discharge so we need to
+						 * remember the time offset
+						 */
+						offset = rec.time;
+	
+						/* Need to force initialization on the first run only */
+						first = false;
+					}
 				}
 
 				/* Save for comparison next time */
@@ -429,23 +437,30 @@ public class Profile {
 
 	/* Add value to appropriate bin */
 	private void add(int t, float value) {
+		Log.d(TAG, "\tadd("+t+","+value+")");
+
 		int binNum = getBinNum(t);
+		Log.d(TAG, "\tbin number: "+binNum);
 		HashMap<Float,Integer> bin;
 
 		/* Make new bin if none exists */
-		if (!bins.containsKey(binNum))
+		if (!bins.containsKey(binNum)){
+			Log.d(TAG, "\tmaking new bin: "+binNum);
 			bins.put(binNum, new HashMap<Float,Integer>());
+		}
 
 		/* Find appropriate bin */
 		bin = bins.get(binNum);
 
 		/* Add new bin if none exists */
 		if (!bin.containsKey(value)){
+			Log.d(TAG, "\tbin does not contain key: "+value);
 			bin.put(value, 1);
 		}
 		else{
-			int count = bin.get(value);
-			bin.put(value, count++);
+			int count = bin.get(value) + 1;
+			bin.put(value, count);
+			Log.d(TAG, "\tbin DOES     contain key: "+value+" count="+count);
 		}
 
 	}

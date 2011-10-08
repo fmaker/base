@@ -16,7 +16,19 @@
 
 package com.android.internal.os;
 
-import com.android.internal.util.JournaledFile;
+import java.io.BufferedReader;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.FileReader;
+import java.io.IOException;
+import java.io.PrintWriter;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.Iterator;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.ReentrantLock;
 
 import android.bluetooth.BluetoothHeadset;
 import android.net.TrafficStats;
@@ -40,19 +52,8 @@ import android.util.Printer;
 import android.util.Slog;
 import android.util.SparseArray;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.FileReader;
-import java.io.IOException;
-import java.io.PrintWriter;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.Iterator;
-import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.locks.ReentrantLock;
+import com.android.internal.util.JournaledFile;
+import com.android.server.am.StaticBatteryProfile;
 
 /**
  * All information we are collecting about things that can happen that impact
@@ -61,7 +62,7 @@ import java.util.concurrent.locks.ReentrantLock;
  */
 public final class BatteryStatsImpl extends BatteryStats {
     private static final String TAG = "BatteryStatsImpl";
-    private static final boolean DEBUG = true;
+    private static final boolean DEBUG = false;
     private static final boolean DEBUG_HISTORY = false;
     
     // In-memory Parcel magic number, used to detect attempts to unmarshall bad data
@@ -71,10 +72,10 @@ public final class BatteryStatsImpl extends BatteryStats {
     private static final int VERSION = 53;
 
     // Maximum number of items we will record in the history.
-    private static final int MAX_HISTORY_ITEMS = 2000*10;
+    private static final int MAX_HISTORY_ITEMS = 2000;
     
     // No, really, THIS is the maximum number of items we will record in the history.
-    private static final int MAX_MAX_HISTORY_ITEMS = 3000*10;
+    private static final int MAX_MAX_HISTORY_ITEMS = 3000;
 
     // The maximum number of names wakelocks we will keep track of
     // per uid; once the limit is reached, we batch the remaining wakelocks
@@ -4033,8 +4034,7 @@ public final class BatteryStatsImpl extends BatteryStats {
         
         initDischarge();
 
-        Log.d("BatteryStats", "NOT clearing history!");
-        //clearHistoryLocked();
+        clearHistoryLocked();
     }
 
     void updateDischargeScreenLevels(boolean oldScreenOn, boolean newScreenOn) {
@@ -4581,11 +4581,11 @@ public final class BatteryStatsImpl extends BatteryStats {
     final ReentrantLock mWriteLock = new ReentrantLock();
 
     public void writeAsyncLocked() {
-        //writeLocked(false);
+        writeLocked(false);
     }
 
     public void writeSyncLocked() {
-        //writeLocked(true);
+        writeLocked(true);
     }
 
     void writeLocked(boolean sync) {
@@ -4693,11 +4693,17 @@ public final class BatteryStatsImpl extends BatteryStats {
             in.setDataPosition(0);
             stream.close();
 
+            Slog.d("BatteryStats","Reading Summary from parcel");
             readSummaryFromParcel(in);
+            
+            /* This should allow us to always start with our set profile */
+            Slog.d("BatteryStats","Clearing then reading HistoryItems from file");
+            clearHistoryLocked();
+            readHistoryFromFile();
         } catch(java.io.IOException e) {
             Slog.e("BatteryStats", "Error reading battery statistics", e);
         }
-        Log.d("DEBUG", "CMD_START");
+
         addHistoryRecordLocked(SystemClock.elapsedRealtime(), HistoryItem.CMD_START);
     }
 
@@ -4709,14 +4715,12 @@ public final class BatteryStatsImpl extends BatteryStats {
         mHistory = mHistoryEnd = mHistoryCache = null;
         mHistoryBaseTime = 0;
         long time;
-        int i=0;
         while (in.dataAvail() > 0 && (time=in.readLong()) >= 0) {
             HistoryItem rec = new HistoryItem(time, in);
             addHistoryRecordLocked(rec);
             if (rec.time > mHistoryBaseTime) {
                 mHistoryBaseTime = rec.time;
             }
-            i++;
         }
         
         long oldnow = SystemClock.elapsedRealtime() - (5*60*100);
@@ -4729,7 +4733,16 @@ public final class BatteryStatsImpl extends BatteryStats {
             // point in boot the elapsed time is already more than 5 seconds.
             mHistoryBaseTime -= oldnow;
         }
-        Slog.d("BatteryStats", "readFromParcel: read in "+i+" entries");
+    }
+    
+    void readHistoryFromFile(){
+    	Slog.d(TAG, "readHistoryFromFile");
+    	int i = 0;
+    	for(HistoryItem rec : StaticBatteryProfile.getProfileEntries()){
+            addHistoryRecordLocked(rec);
+            i++;
+    	}
+    	Slog.d(TAG, "readHistoryFromFile : entries = "+i);
     }
     
     void writeHistory(Parcel out) {
