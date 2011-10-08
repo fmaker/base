@@ -1257,7 +1257,8 @@ class ContextImpl extends Context {
             return PackageManager.PERMISSION_GRANTED;
         }
         int pid = Binder.getCallingPid();
-        if (pid != Process.myPid()) {
+        int uid = Binder.getCallingUid();
+        if (pid != Process.myPid() || uid == Process.SYSTEM_UID) {
             return checkPermission(permission, pid,
                     Binder.getCallingUid());
         }

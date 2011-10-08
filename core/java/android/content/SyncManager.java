@@ -350,7 +350,7 @@ public class SyncManager implements OnAccountsUpdateListener {
         try{
 	        File swapFile = context.getDir("thresholdtable.swp", context.MODE_PRIVATE);
 	        Profile p = new Profile(context);
-	        mSmartSyncThresholdTable = new ThresholdTable(p, swapFile);
+	        mSmartSyncThresholdTable = new ThresholdTable(p);
 	        Log.d(TAG, "Threshold table generating for 1st time...");
     	}
         catch(SecurityException se){

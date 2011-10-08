@@ -1,5 +1,6 @@
 package android.content;
 
+import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.OutputStream;
@@ -43,6 +44,7 @@ public class Profile {
 	private BatteryStats mStats;
 	private PowerProfile mProfile;
 	private final boolean debug = true;
+	public int energyPerSync = 1;
 
 	
 	/* 
@@ -74,25 +76,25 @@ public class Profile {
 		if(debug){
 			FileOutputStream f;
 			try {
-				f = context.openFileOutput("history_items.dat", context.MODE_WORLD_READABLE);
+				f = new FileOutputStream(new File("/sdcard/Profile.java/","history_items.dat"));
 				debugHistoryItems(f);
 			} catch (FileNotFoundException e) {
 				e.printStackTrace();
 			}
 			try {
-				f = context.openFileOutput("bins.dat", context.MODE_WORLD_READABLE);
+				f = new FileOutputStream(new File("/sdcard/Profile.java/","bins.dat"));
 				debugBins(f);
 			} catch (FileNotFoundException e) {
 				e.printStackTrace();
 			}
 			try {
-				f = context.openFileOutput("charge_prob.dat", context.MODE_WORLD_READABLE);
+				f = new FileOutputStream(new File("/sdcard/Profile.java/","charge_prob.dat"));
 				debugChargeProb(f);
 			} catch (FileNotFoundException e) {
 				e.printStackTrace();
 			}
 			try {
-				f = context.openFileOutput("energy_used.dat", context.MODE_WORLD_READABLE);
+				f = new FileOutputStream(new File("/sdcard/Profile.java/","energy_used.dat"));
 				debugEnergyUsed(f);
 			} catch (FileNotFoundException e) {
 				e.printStackTrace();
