@@ -41,13 +41,11 @@ public class Profile {
 	private static final int SCALE = 100;
 	private static final int BIN_WIDTH = 60 * 5;
 	private static final float MILLI = 1000.0F;
-	private static final long SECS_PER_MIN = 60;
-
 	private BatteryStats mStats;
 	private PowerProfile mProfile;
 	private final boolean debug = true;
 	public int energyPerSync = 1;
-
+	private float mFullBattery = 0;
 	
 	/* 
 	 * bins is used to keep a map from the time since sync (bin number)
@@ -59,10 +57,16 @@ public class Profile {
 	
 	private HashMap<Integer, HashMap<Float,Integer>> bins;
 	private ArrayList<Integer> chargeTimes;
+	private Context mContext;
 
 	public Profile(Context context) {
+		mContext = context;
+		
+		mProfile = new PowerProfile(mContext);
 
-		mProfile = new PowerProfile(context);
+		final float voltage = 3.7F;
+		mFullBattery = (float) (mProfile.getBatteryCapacity()
+				/ MILLI * SECS_IN_HOUR * voltage);
 
 		/* Load battery stats */
 		load();
@@ -197,12 +201,6 @@ public class Profile {
 					}
 					/* Otherwise charging */
 					else if (percent > lastPercent || first) {
-	
-						/* Calculate full battery based on current voltage level */
-						//final float voltage = (float) rec.batteryVoltage / MILLI;
-						final float voltage = 3.7F;
-						fullBattery = (float) (mProfile.getBatteryCapacity()
-								/ MILLI * SECS_IN_HOUR * voltage);
 	
 						/*
 						 * Next event could be first discharge so we need to
@@ -369,6 +367,14 @@ public class Profile {
 
 	public ArrayList<Pair<Integer, Double>> getEnergyUsed(int t) {
 		return getBin(t);
+	}
+	
+	public double getEnergyRemaining(){
+		if(mStats == null){
+			load();
+		}
+
+		return mStats.getHistoryEnd().batteryLevel / 100.F * mFullBattery;
 	}
 
 	/** 

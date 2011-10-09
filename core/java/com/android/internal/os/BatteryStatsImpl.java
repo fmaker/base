@@ -3961,6 +3961,11 @@ public final class BatteryStatsImpl extends BatteryStats {
     }
     
     @Override
+    public HistoryItem getHistoryEnd(){
+    	return mHistoryLastEnd;
+    }
+    
+    @Override
     public long getHistoryBaseTime() {
         return mHistoryBaseTime;
     }

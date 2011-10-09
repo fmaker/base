@@ -160,7 +160,8 @@ public class SyncManager implements OnAccountsUpdateListener {
     private ConnectivityManager mConnManagerDoNotUseDirectly;
 
     private final SyncAdaptersCache mSyncAdapters;
-    
+
+    private Profile mProfile;
     private ThresholdTable mSmartSyncThresholdTable;
 
     private BroadcastReceiver mBatteryChangedReceiver =
@@ -348,8 +349,8 @@ public class SyncManager implements OnAccountsUpdateListener {
         Log.d(TAG, "Creating threshold table");
         try{
 	        File swapFile = context.getDir("thresholdtable.swp", context.MODE_PRIVATE);
-	        Profile p = new Profile(context);
-	        mSmartSyncThresholdTable = new ThresholdTable(p);
+	        mProfile = new Profile(context);
+	        mSmartSyncThresholdTable = new ThresholdTable(mProfile);
 	        Log.d(TAG, "Threshold table generating for 1st time...");
     	}
         catch(SecurityException se){
@@ -421,6 +422,7 @@ public class SyncManager implements OnAccountsUpdateListener {
     
     protected void smartSyncHook(boolean b){
     	Log.d(TAG, "SyncManager: smartSyncHook("+b+")");
+    	Log.d(TAG, "energy remaining: "+mProfile.getEnergyRemaining());
     }
 
     /**
