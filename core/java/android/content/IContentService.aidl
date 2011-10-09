@@ -31,6 +31,8 @@ import android.database.IContentObserver;
  * @hide
  */
 interface IContentService {
+	void smartSyncHook(boolean b);
+
     void registerContentObserver(in Uri uri, boolean notifyForDescendentsn,
             IContentObserver observer);
     void unregisterContentObserver(IContentObserver observer);

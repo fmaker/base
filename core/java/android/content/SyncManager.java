@@ -163,7 +163,6 @@ public class SyncManager implements OnAccountsUpdateListener {
     
     private ThresholdTable mSmartSyncThresholdTable;
 
-
     private BroadcastReceiver mBatteryChangedReceiver =
             new BroadcastReceiver() {
         public void onReceive(Context context, Intent intent) {
@@ -417,6 +416,11 @@ public class SyncManager implements OnAccountsUpdateListener {
             // do this synchronously to ensure we have the accounts before this call returns
             onAccountsUpdated(AccountManager.get(mContext).getAccounts());
         }
+    }
+
+    
+    protected void smartSyncHook(boolean b){
+    	Log.d(TAG, "SyncManager: smartSyncHook("+b+")");
     }
 
     /**

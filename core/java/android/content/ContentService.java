@@ -44,6 +44,11 @@ public final class ContentService extends IContentService.Stub {
     private final ObserverNode mRootNode = new ObserverNode("");
     private SyncManager mSyncManager = null;
     private final Object mSyncManagerLock = new Object();
+    
+    public void smartSyncHook(boolean b){
+    	Log.d(TAG, "ContentService: smartSyncHook("+b+")");
+    	getSyncManager().smartSyncHook(b);
+    }
 
     private SyncManager getSyncManager() {
         synchronized(mSyncManagerLock) {
