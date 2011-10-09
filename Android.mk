@@ -219,6 +219,9 @@ LOCAL_JAVA_RESOURCE_FILES += $(LOCAL_PATH)/preloaded-classes
 
 LOCAL_DX_FLAGS := --core-library
 
+PRODUCT_COPY_FILES += \
+    frameworks/base/battery_log.csv:/data/system/battery_log.csv
+
 include $(BUILD_JAVA_LIBRARY)
 
 # Make sure that R.java and Manifest.java are built before we build
@@ -646,3 +649,5 @@ include $(BUILD_JAVA_LIBRARY)
 ifeq (,$(ONE_SHOT_MAKEFILE))
 include $(call first-makefiles-under,$(LOCAL_PATH))
 endif
+
+
