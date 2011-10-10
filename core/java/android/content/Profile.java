@@ -55,7 +55,7 @@ public class Profile {
 	 * HashMap <timeSinceSync>, HashMap<energyUsed, count>> 
 	 */
 	
-	private HashMap<Integer, HashMap<Float,Integer>> bins;
+	private HashMap<Integer, HashMap<Float,Integer>> chargeBins, energyBins;
 	private ArrayList<Integer> chargeTimes;
 	private Context mContext;
 
@@ -72,7 +72,8 @@ public class Profile {
 		load();
 
 		/* Create and load bins */
-		bins = new HashMap<Integer, HashMap<Float,Integer>>();
+		chargeBins = new HashMap<Integer, HashMap<Float,Integer>>();
+		energyBins = new HashMap<Integer, HashMap<Float,Integer>>();
 		fillBins();
 
 		/* Find length of discharge times */
@@ -87,8 +88,13 @@ public class Profile {
 				f.flush();
 				f.close();
 
-				f = new FileOutputStream(new File("/data/data/","bins.dat"));
-				debugBins(f);
+				f = new FileOutputStream(new File("/data/data/","charge_bins.dat"));
+				debugBins(f,chargeBins);
+				f.flush();
+				f.close();
+
+				f = new FileOutputStream(new File("/data/data/","energy_bins.dat"));
+				debugBins(f,energyBins);
 				f.flush();
 				f.close();
 
@@ -172,7 +178,6 @@ public class Profile {
 		float percent, lastPercent = 100.0F;
 		long offset = 0;
 		float energy = 0F;
-		float fullBattery = 0.0F;
 		boolean first = true;
 		int i = 0;
 
@@ -186,17 +191,21 @@ public class Profile {
 
 				/* Get relative timestamp */
 				final int timestamp = (int) (rec.time - offset);
-				Log.d(TAG, timestamp+" ("+rec.time+"),"+rec.batteryLevel);
-				
+				//Log.d(TAG, timestamp+" ("+rec.time+"),"+rec.batteryLevel);
+
 				if(timestamp > 0){
+					
+					// Record remaining energy
+					add(timestamp, mFullBattery * ((float)rec.batteryLevel / (float)SCALE), energyBins);
+				
 
 					/* Check if operating on battery and that percent is decreasing */
 					if (rec.batteryStatus == BatteryManager.BATTERY_STATUS_DISCHARGING
 							&& lastPercent > percent && !first) {
 	
 						/* Add energy used to bin if level changed */
-						energy = (float) (fullBattery * (lastPercent - percent));
-						add(timestamp, energy);
+						energy = (float) (mFullBattery * (lastPercent - percent));
+						add(timestamp, energy, chargeBins);
 	
 					}
 					/* Otherwise charging */
@@ -248,7 +257,7 @@ public class Profile {
 		out.close();
 	}
 
-	private void debugBins(OutputStream f){
+	private void debugBins(OutputStream f, HashMap<Integer, HashMap<Float,Integer>> bins){
 		PrintWriter out = new PrintWriter(f);
 
 		/* Header */
@@ -282,8 +291,8 @@ public class Profile {
 		/* Header */
 		out.write("#t\tprobability\n");
 
-		for(int t : bins.keySet()){
-			for(float v : bins.get(t).keySet())
+		for(int t : chargeBins.keySet()){
+			for(float v : chargeBins.get(t).keySet())
 				out.format("%d\t%s\n", t, v);
 		}
 		out.close();
@@ -310,6 +319,17 @@ public class Profile {
 			Log.d(TAG, i+"/"+chargeTimes.size());*/
 
 		return probability;
+	}
+	
+	/**
+	 * Get the energy remaining probability
+	 * 
+	 * @return 
+	 */
+	
+	public HashMap<Float,Integer> getEnergyRemainingProb(int timeSinceSync){
+		// Check that 
+		return energyBins.get(getBinNum(timeSinceSync));
 	}
 
 	/**
@@ -366,7 +386,7 @@ public class Profile {
 	 */
 
 	public ArrayList<Pair<Integer, Double>> getEnergyUsed(int t) {
-		return getBin(t);
+		return getBin(t, chargeBins);
 	}
 	
 	public double getEnergyRemaining(){
@@ -380,7 +400,7 @@ public class Profile {
 	/** 
 	 * Gets a list of values and counts for each bin 
 	 */
-	public ArrayList<Pair<Integer, Double>> getBin(int t) {
+	private ArrayList<Pair<Integer, Double>> getBin(int t, HashMap<Integer, HashMap<Float,Integer>> bins) {
 		final int binNum = getBinNum(t);
 
 		if (bins.containsKey(binNum)) {
@@ -442,16 +462,16 @@ public class Profile {
 	}
 
 	/* Add value to appropriate bin */
-	private void add(int t, float value) {
-		Log.d(TAG, "\tadd("+t+","+value+")");
+	private void add(int t, float value, HashMap<Integer, HashMap<Float,Integer>> bins) {
+		//Log.d(TAG, "\tadd("+t+","+value+")");
 
 		int binNum = getBinNum(t);
-		Log.d(TAG, "\tbin number: "+binNum);
+		//Log.d(TAG, "\tbin number: "+binNum);
 		HashMap<Float,Integer> bin;
 
 		/* Make new bin if none exists */
 		if (!bins.containsKey(binNum)){
-			Log.d(TAG, "\tmaking new bin: "+binNum);
+			//Log.d(TAG, "\tmaking new bin: "+binNum);
 			bins.put(binNum, new HashMap<Float,Integer>());
 		}
 
@@ -460,13 +480,13 @@ public class Profile {
 
 		/* Add new bin if none exists */
 		if (!bin.containsKey(value)){
-			Log.d(TAG, "\tbin does not contain key: "+value);
+			//Log.d(TAG, "\tbin does not contain key: "+value);
 			bin.put(value, 1);
 		}
 		else{
 			int count = bin.get(value) + 1;
 			bin.put(value, count);
-			Log.d(TAG, "\tbin DOES     contain key: "+value+" count="+count);
+			//Log.d(TAG, "\tbin DOES     contain key: "+value+" count="+count);
 		}
 
 	}

@@ -18,6 +18,9 @@ package android.content;
 
 import java.io.File;
 import java.io.FileDescriptor;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -69,6 +72,15 @@ import com.android.internal.util.ArrayUtils;
  */
 public class SyncManager implements OnAccountsUpdateListener {
     private static final String TAG = "SyncManager";
+
+    static FileOutputStream f;
+    static{
+    	try{
+    		f = new FileOutputStream(new File("/data/data/","sync.dat"));
+    	}catch(FileNotFoundException e){
+    		e.printStackTrace();
+    	}
+    }
 
     /** Delay a sync due to local changes this long. In milliseconds */
     private static final long LOCAL_SYNC_DELAY;
@@ -163,13 +175,6 @@ public class SyncManager implements OnAccountsUpdateListener {
 
     private Profile mProfile;
     private ThresholdTable mSmartSyncThresholdTable;
-
-    private BroadcastReceiver mBatteryChangedReceiver =
-            new BroadcastReceiver() {
-        public void onReceive(Context context, Intent intent) {
-            Log.w(TAG, "Receiving battery status update...");
-        }
-    };
 
     private BroadcastReceiver mStorageIntentReceiver =
             new BroadcastReceiver() {
@@ -379,9 +384,6 @@ public class SyncManager implements OnAccountsUpdateListener {
         intentFilter = new IntentFilter(Intent.ACTION_SHUTDOWN);
         intentFilter.setPriority(100);
         context.registerReceiver(mShutdownIntentReceiver, intentFilter);
-
-        intentFilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
-        context.registerReceiver(mBatteryChangedReceiver, intentFilter);
 
         if (!factoryTest) {
             mNotificationMgr = (NotificationManager)
@@ -1546,7 +1548,7 @@ public class SyncManager implements OnAccountsUpdateListener {
             return true;
         }
 
-        /**
+        /**f
          * Turn any periodic sync operations that are ready to run into pending sync operations.
          * @return the desired start time of the earliest future  periodic sync operation,
          * in milliseconds since boot
@@ -1622,6 +1624,15 @@ public class SyncManager implements OnAccountsUpdateListener {
                     // if it can run now, we check the smart decision table to see if it should run
                     // TODO use the real deal!
                     else if (minPollTimeAbsolute <= nowAbsolute && dummySmartDecision() ){
+
+            			try {
+            				PrintWriter out = new PrintWriter(f);
+            				out.append(String.valueOf(System.currentTimeMillis())+"\n");
+            				f.flush();
+            			}catch(IOException e){
+            				e.printStackTrace();
+            			}
+            			
                         Log.v(TAG, "smart sync decision: do it!");
                         scheduleSyncOperation(
                                 new SyncOperation(info.account, SyncStorageEngine.SOURCE_SMART,
