@@ -29,6 +29,8 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 
+import org.apache.http.cookie.SM;
+
 import android.accounts.Account;
 import android.accounts.AccountManager;
 import android.accounts.OnAccountsUpdateListener;
@@ -80,6 +82,16 @@ public class SyncManager implements OnAccountsUpdateListener {
     	}catch(FileNotFoundException e){
     		e.printStackTrace();
     	}
+    }
+    
+    private static final int PERIODIC = 0;
+    private static final int SMARTSYNC = 1;
+    private static final int MAYBE = 2;
+    private static final int FULL = 3;
+    
+    private void logSync(int type){
+		syncLog.write(String.valueOf(System.currentTimeMillis())+","+type+"\n");
+		syncLog.flush();
     }
 
     /** Delay a sync due to local changes this long. In milliseconds */
@@ -866,6 +878,7 @@ public class SyncManager implements OnAccountsUpdateListener {
         // If this was a two-way sync then retry soft errors with an exponential backoff.
         // If this was an upward sync then schedule a two-way sync immediately.
         // Otherwise do not reschedule.
+		logSync(MAYBE);
         if (operation.extras.getBoolean(ContentResolver.SYNC_EXTRAS_DO_NOT_RETRY, false)) {
             Log.d(TAG, "not retrying sync operation because SYNC_EXTRAS_DO_NOT_RETRY was specified "
                     + operation);
@@ -1589,8 +1602,7 @@ public class SyncManager implements OnAccountsUpdateListener {
                     // if it is ready to run then schedule it and mark it as having been scheduled
                     if (nextPollTimeAbsolute <= nowAbsolute) {
 
-            			syncLog.append(String.valueOf(System.currentTimeMillis())+"\t"+"0\tPERIODIC\n");
-						syncLog.flush();
+            			logSync(PERIODIC);
 
                         scheduleSyncOperation(
                                 new SyncOperation(info.account, SyncStorageEngine.SOURCE_PERIODIC,
@@ -1619,6 +1631,7 @@ public class SyncManager implements OnAccountsUpdateListener {
                             + minPollTimeAbsolute + ", maxPollTimeAbsolute"+ maxPollTimeAbsolute);
                     // if it is already pass due then schedule it and mark it as having been scheduled
                     if (maxPollTimeAbsolute <= nowAbsolute) {
+						logSync(SMARTSYNC);
                         Log.v(TAG, "past due smart sync");
                         scheduleSyncOperation(
                                 new SyncOperation(info.account, SyncStorageEngine.SOURCE_SMART,
@@ -1629,8 +1642,7 @@ public class SyncManager implements OnAccountsUpdateListener {
                     // TODO use the real deal!
                     else if (minPollTimeAbsolute <= nowAbsolute && dummySmartDecision() ){
 
-            			syncLog.append(String.valueOf(System.currentTimeMillis())+"\n"+"1\tSMARTSYNC\n");
-						syncLog.flush();
+						logSync(SMARTSYNC);
             			
                         Log.v(TAG, "smart sync decision: do it!");
                         scheduleSyncOperation(
@@ -1924,6 +1936,7 @@ public class SyncManager implements OnAccountsUpdateListener {
             }
 
             if (syncResult != null && syncResult.fullSyncRequested) {
+				logSync(FULL);
                 scheduleSyncOperation(new SyncOperation(syncOperation.account,
                         syncOperation.syncSource, syncOperation.authority, new Bundle(), 0));
             }
