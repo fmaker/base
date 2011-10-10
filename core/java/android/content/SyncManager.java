@@ -73,10 +73,10 @@ import com.android.internal.util.ArrayUtils;
 public class SyncManager implements OnAccountsUpdateListener {
     private static final String TAG = "SyncManager";
 
-    static FileOutputStream f;
+    static PrintWriter syncLog;
     static{
     	try{
-    		f = new FileOutputStream(new File("/data/data/","sync.dat"));
+    		syncLog = new PrintWriter(new FileOutputStream(new File("/data/data/","sync.dat")));
     	}catch(FileNotFoundException e){
     		e.printStackTrace();
     	}
@@ -1588,6 +1588,10 @@ public class SyncManager implements OnAccountsUpdateListener {
                     long nextPollTimeAbsolute = lastPollTimeAbsolute + periodInSeconds * 1000;
                     // if it is ready to run then schedule it and mark it as having been scheduled
                     if (nextPollTimeAbsolute <= nowAbsolute) {
+
+            			syncLog.append(String.valueOf(System.currentTimeMillis())+"\t"+"0\tPERIODIC\n");
+						syncLog.flush();
+
                         scheduleSyncOperation(
                                 new SyncOperation(info.account, SyncStorageEngine.SOURCE_PERIODIC,
                                         info.authority, extras, 0 /* delay */));
@@ -1625,13 +1629,8 @@ public class SyncManager implements OnAccountsUpdateListener {
                     // TODO use the real deal!
                     else if (minPollTimeAbsolute <= nowAbsolute && dummySmartDecision() ){
 
-            			try {
-            				PrintWriter out = new PrintWriter(f);
-            				out.append(String.valueOf(System.currentTimeMillis())+"\n");
-            				f.flush();
-            			}catch(IOException e){
-            				e.printStackTrace();
-            			}
+            			syncLog.append(String.valueOf(System.currentTimeMillis())+"\n"+"1\tSMARTSYNC\n");
+						syncLog.flush();
             			
                         Log.v(TAG, "smart sync decision: do it!");
                         scheduleSyncOperation(
