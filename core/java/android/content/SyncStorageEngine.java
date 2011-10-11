@@ -292,7 +292,7 @@ public class SyncStorageEngine extends Handler {
     private boolean mMasterSyncAutomatically = true;
     // TODO what's the default value?
     // This should be the time granularity of the decision table
-    private long mMinSmartSyncPeriod = 60*2;
+    private long mMinSmartSyncPeriod = 30;
 
     private SyncStorageEngine(Context context, File dataDir) {
         mContext = context;

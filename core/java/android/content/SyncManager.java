@@ -18,9 +18,6 @@ package android.content;
 
 import java.io.File;
 import java.io.FileDescriptor;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -28,8 +25,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.CountDownLatch;
-
-import org.apache.http.cookie.SM;
 
 import android.accounts.Account;
 import android.accounts.AccountManager;
@@ -74,25 +69,9 @@ import com.android.internal.util.ArrayUtils;
  */
 public class SyncManager implements OnAccountsUpdateListener {
     private static final String TAG = "SyncManager";
-
-    static PrintWriter syncLog;
-    static{
-    	try{
-    		syncLog = new PrintWriter(new FileOutputStream(new File("/data/data/","sync.dat")));
-    	}catch(FileNotFoundException e){
-    		e.printStackTrace();
-    	}
-    }
     
-    private static final int PERIODIC = 0;
-    private static final int SMARTSYNC = 1;
-    private static final int MAYBE = 2;
-    private static final int FULL = 3;
-    
-    private void logSync(int type){
-		syncLog.write(String.valueOf(System.currentTimeMillis())+","+type+"\n");
-		syncLog.flush();
-    }
+    /** SmartSync enabled **/
+    public static boolean smartSyncEnabled=true;
 
     /** Delay a sync due to local changes this long. In milliseconds */
     private static final long LOCAL_SYNC_DELAY;
@@ -186,7 +165,14 @@ public class SyncManager implements OnAccountsUpdateListener {
     private final SyncAdaptersCache mSyncAdapters;
 
     private Profile mProfile;
-    private ThresholdTable mSmartSyncThresholdTable;
+    private float[] mSmartSyncThresholdTable;
+
+    private BroadcastReceiver mBatteryChangedReceiver =
+            new BroadcastReceiver() {
+        public void onReceive(Context context, Intent intent) {
+            Log.w(TAG, "Receiving battery status update...");
+        }
+    };
 
     private BroadcastReceiver mStorageIntentReceiver =
             new BroadcastReceiver() {
@@ -367,7 +353,7 @@ public class SyncManager implements OnAccountsUpdateListener {
         try{
 	        File swapFile = context.getDir("thresholdtable.swp", context.MODE_PRIVATE);
 	        mProfile = new Profile(context);
-	        mSmartSyncThresholdTable = new ThresholdTable(mProfile);
+	        mSmartSyncThresholdTable = new ThresholdTable(mProfile).getThreshold();
 	        Log.d(TAG, "Threshold table generating for 1st time...");
     	}
         catch(SecurityException se){
@@ -396,6 +382,9 @@ public class SyncManager implements OnAccountsUpdateListener {
         intentFilter = new IntentFilter(Intent.ACTION_SHUTDOWN);
         intentFilter.setPriority(100);
         context.registerReceiver(mShutdownIntentReceiver, intentFilter);
+
+        intentFilter = new IntentFilter(Intent.ACTION_BATTERY_CHANGED);
+        context.registerReceiver(mBatteryChangedReceiver, intentFilter);
 
         if (!factoryTest) {
             mNotificationMgr = (NotificationManager)
@@ -437,6 +426,7 @@ public class SyncManager implements OnAccountsUpdateListener {
     protected void smartSyncHook(boolean b){
     	Log.d(TAG, "SyncManager: smartSyncHook("+b+")");
     	Log.d(TAG, "energy remaining: "+mProfile.getEnergyRemaining());
+    	this.smartSyncEnabled = b;
     }
 
     /**
@@ -878,7 +868,6 @@ public class SyncManager implements OnAccountsUpdateListener {
         // If this was a two-way sync then retry soft errors with an exponential backoff.
         // If this was an upward sync then schedule a two-way sync immediately.
         // Otherwise do not reschedule.
-		logSync(MAYBE);
         if (operation.extras.getBoolean(ContentResolver.SYNC_EXTRAS_DO_NOT_RETRY, false)) {
             Log.d(TAG, "not retrying sync operation because SYNC_EXTRAS_DO_NOT_RETRY was specified "
                     + operation);
@@ -1436,7 +1425,7 @@ public class SyncManager implements OnAccountsUpdateListener {
         public void handleMessage(Message msg) {
             Long earliestFuturePollTime = null;
             try {
-                Log.v(TAG, "smart sync version");
+                Log.v(TAG, "smart sync version 4");
                 waitUntilReadyToRun();
                 // Always do this first so that we be sure that any periodic syncs that
                 // are ready to run have been converted into pending syncs. This allows the
@@ -1557,11 +1546,18 @@ public class SyncManager implements OnAccountsUpdateListener {
         }
 
         // TODO use the real deal!
-        boolean dummySmartDecision(){
-            return true;
+        boolean smartDecision(){
+        	int time = mProfile.getTimeSlot();
+        	
+        	float budget = mSmartSyncThresholdTable[time];
+        	double remaining = mProfile.getEnergyRemaining();
+        	
+        	Log.e(TAG, "time: "+time+", budget: "+ budget+ ", remaining: "+remaining);
+        	
+        	return (remaining > budget);
         }
 
-        /**f
+        /**
          * Turn any periodic sync operations that are ready to run into pending sync operations.
          * @return the desired start time of the earliest future  periodic sync operation,
          * in milliseconds since boot
@@ -1577,7 +1573,7 @@ public class SyncManager implements OnAccountsUpdateListener {
             ArrayList<SyncStorageEngine.AuthorityInfo> infos = mSyncStorageEngine.getAuthorities();
             Log.v(TAG,"authority infos array size = "+infos.size());
             for (SyncStorageEngine.AuthorityInfo info : infos) {
-                Log.v(TAG,"AuthorityInfo = "+info);
+                Log.v(TAG,"AuthorityInfo = "+info.authority);
                 // skip the sync if the account of this operation no longer exists
                 if (!ArrayUtils.contains(mAccounts, info.account)) {
                     continue;
@@ -1592,46 +1588,99 @@ public class SyncManager implements OnAccountsUpdateListener {
                 }
 
                 SyncStatusInfo status = mSyncStorageEngine.getOrCreateSyncStatus(info);
+//                Log.v(TAG,"info.periodicSyncs.size()="+info.periodicSyncs.size());
+//                for (int i = 0, N = info.periodicSyncs.size(); i < N; i++) {
+//                    final Bundle extras = info.periodicSyncs.get(i).first;
+//                    final Long periodInSeconds = info.periodicSyncs.get(i).second;
+//                    // find when this periodic sync was last scheduled to run
+//                    final long lastPollTimeAbsolute = status.getPeriodicSyncTime(i);
+//                    // compute when this periodic sync should next run
+//                    long nextPollTimeAbsolute = lastPollTimeAbsolute + periodInSeconds * 1000;
+//                    // if it is ready to run then schedule it and mark it as having been scheduled
+//                    if (nextPollTimeAbsolute <= nowAbsolute) {
+//                        scheduleSyncOperation(
+//                                new SyncOperation(info.account, SyncStorageEngine.SOURCE_PERIODIC,
+//                                        info.authority, extras, 0 /* delay */));
+//                        status.setPeriodicSyncTime(i, nowAbsolute);
+//                    } else {
+//                        // it isn't ready to run, remember this time if it is earlier than
+//                        // earliestFuturePollTime
+//                        if (earliestFuturePollTime == null
+//                                || nextPollTimeAbsolute < earliestFuturePollTime) {
+//                            earliestFuturePollTime = nextPollTimeAbsolute;
+//                        }
+//                    }
+//                }
+                
+                Time t = new Time();
+                
+//                Log.v(TAG,"info.smartSyncs.size() = "+info.smartSyncs.size());
+//                for (int i = 0, N = info.smartSyncs.size(); i < N; i++) {
+//                    final Bundle extras = info.smartSyncs.get(i).first;
+//                    final Long minPeriodInSeconds = info.smartSyncs.get(i).second;
+//                    final Long maxPeriodInSeconds = info.smartSyncs.get(i).third;
+//                    // find when this smart sync was last scheduled to run
+//                    final long lastPollTimeAbsolute = status.getSmartSyncTime(i);
+//                    // compute when this smart sync can run next, and when it must run next
+//                    long minPollTimeAbsolute = lastPollTimeAbsolute + minPeriodInSeconds * 1000;
+//                    long maxPollTimeAbsolute = lastPollTimeAbsolute + maxPeriodInSeconds * 1000;
+//                    Log.v(TAG, "nowAbsolute = " + nowAbsolute + ", minPollTimeAbsolute = "
+//                            + minPollTimeAbsolute + ", maxPollTimeAbsolute"+ maxPollTimeAbsolute);
+//                    // if it is already pass due then schedule it and mark it as having been scheduled
+//                    if (maxPollTimeAbsolute <= nowAbsolute) {
+//                        Log.v(TAG, "past due smart sync");
+//                        scheduleSyncOperation(
+//                                new SyncOperation(info.account, SyncStorageEngine.SOURCE_SMART,
+//                                        info.authority, extras, 0 /* delay */));
+//                        status.setSmartSyncTime(i, nowAbsolute);
+//                    }
+//                    // if it can run now, we check the smart decision table to see if it should run
+//                    // TODO use the real deal!
+//                    else if (minPollTimeAbsolute <= nowAbsolute && smartDecision() ){
+//                        Log.v(TAG, "smart sync decision: do it!");
+//                        scheduleSyncOperation(
+//                                new SyncOperation(info.account, SyncStorageEngine.SOURCE_SMART,
+//                                        info.authority, extras, 0 /* delay */));
+//                        status.setSmartSyncTime(i, nowAbsolute);
+//                    } else {
+//                        // it isn't ready to run, remember this time if it is earlier than
+//                        // earliestFuturePollTime
+//                        if (earliestFuturePollTime == null
+//                                || minPollTimeAbsolute < earliestFuturePollTime) {
+//                            earliestFuturePollTime = minPollTimeAbsolute;
+//                        }
+//                        if (earliestFuturePollTime != null) {
+//                            Log.v(TAG,"earliestFuturePollTime = "+ earliestFuturePollTime);
+//                        }
+//                    }
+//                }
+                
+                
+                Log.v(TAG,"info.periodicSyncs.size() = "+info.periodicSyncs.size());
                 for (int i = 0, N = info.periodicSyncs.size(); i < N; i++) {
                     final Bundle extras = info.periodicSyncs.get(i).first;
-                    final Long periodInSeconds = info.periodicSyncs.get(i).second;
-                    // find when this periodic sync was last scheduled to run
-                    final long lastPollTimeAbsolute = status.getPeriodicSyncTime(i);
-                    // compute when this periodic sync should next run
-                    long nextPollTimeAbsolute = lastPollTimeAbsolute + periodInSeconds * 1000;
-                    // if it is ready to run then schedule it and mark it as having been scheduled
-                    if (nextPollTimeAbsolute <= nowAbsolute) {
-
-            			logSync(PERIODIC);
-
-                        scheduleSyncOperation(
-                                new SyncOperation(info.account, SyncStorageEngine.SOURCE_PERIODIC,
-                                        info.authority, extras, 0 /* delay */));
-                        status.setPeriodicSyncTime(i, nowAbsolute);
-                    } else {
-                        // it isn't ready to run, remember this time if it is earlier than
-                        // earliestFuturePollTime
-                        if (earliestFuturePollTime == null
-                                || nextPollTimeAbsolute < earliestFuturePollTime) {
-                            earliestFuturePollTime = nextPollTimeAbsolute;
-                        }
-                    }
-                }
-                Log.v(TAG,"info.smartSyncs.size() = "+info.smartSyncs.size());
-                for (int i = 0, N = info.smartSyncs.size(); i < N; i++) {
-                    final Bundle extras = info.smartSyncs.get(i).first;
-                    final Long minPeriodInSeconds = info.smartSyncs.get(i).second;
-                    final Long maxPeriodInSeconds = info.smartSyncs.get(i).third;
+                    final Long minPeriodInSeconds = (long) 10;
+                    final Long maxPeriodInSeconds = (long) (60 * 60 * 24);
                     // find when this smart sync was last scheduled to run
                     final long lastPollTimeAbsolute = status.getSmartSyncTime(i);
+                    
                     // compute when this smart sync can run next, and when it must run next
                     long minPollTimeAbsolute = lastPollTimeAbsolute + minPeriodInSeconds * 1000;
                     long maxPollTimeAbsolute = lastPollTimeAbsolute + maxPeriodInSeconds * 1000;
-                    Log.v(TAG, "nowAbsolute = " + nowAbsolute + ", minPollTimeAbsolute = "
-                            + minPollTimeAbsolute + ", maxPollTimeAbsolute"+ maxPollTimeAbsolute);
+                    
+                    t.set(nowAbsolute);
+                    String nowAbsoluteFormat = t.format("%H-%M-%S");
+                    t.set(minPollTimeAbsolute);
+                    String minPollTimeAbsoluteFormat = t.format("%H-%M-%S");
+                    t.set(maxPollTimeAbsolute);
+                    String maxPollTimeAbsoluteFormat = t.format("%H-%M-%S");
+                    t.set(lastPollTimeAbsolute);
+                    String lastPollTimeAbsoluteFormat = t.format("%H-%M-%S");
+                    Log.v(TAG, "nowAbsolute = " + nowAbsoluteFormat + ", minPollTimeAbsolute = "
+                            + minPollTimeAbsoluteFormat + ", maxPollTimeAbsolute"+ maxPollTimeAbsoluteFormat
+                            +" , lastPollTimeAbsolute= "+lastPollTimeAbsoluteFormat);
                     // if it is already pass due then schedule it and mark it as having been scheduled
                     if (maxPollTimeAbsolute <= nowAbsolute) {
-						logSync(SMARTSYNC);
                         Log.v(TAG, "past due smart sync");
                         scheduleSyncOperation(
                                 new SyncOperation(info.account, SyncStorageEngine.SOURCE_SMART,
@@ -1640,10 +1689,7 @@ public class SyncManager implements OnAccountsUpdateListener {
                     }
                     // if it can run now, we check the smart decision table to see if it should run
                     // TODO use the real deal!
-                    else if (minPollTimeAbsolute <= nowAbsolute && dummySmartDecision() ){
-
-						logSync(SMARTSYNC);
-            			
+                    else if (minPollTimeAbsolute <= nowAbsolute && smartDecision() ){
                         Log.v(TAG, "smart sync decision: do it!");
                         scheduleSyncOperation(
                                 new SyncOperation(info.account, SyncStorageEngine.SOURCE_SMART,
@@ -1653,14 +1699,19 @@ public class SyncManager implements OnAccountsUpdateListener {
                         // it isn't ready to run, remember this time if it is earlier than
                         // earliestFuturePollTime
                         if (earliestFuturePollTime == null
-                                || minPollTimeAbsolute < earliestFuturePollTime) {
-                            earliestFuturePollTime = minPollTimeAbsolute;
+                                || nowAbsolute + minPeriodInSeconds * 1000 < earliestFuturePollTime) {
+                            earliestFuturePollTime = nowAbsolute + minPeriodInSeconds * 1000;
                         }
                         if (earliestFuturePollTime != null) {
-                            Log.v(TAG,"earliestFuturePollTime = "+ earliestFuturePollTime);
+                        	t.set(earliestFuturePollTime);
+                        	String earliestFuturePollTimeFormat = t.format("%H-%M-%S");
+                            Log.v(TAG,"earliestFuturePollTime = "+ earliestFuturePollTimeFormat);
                         }
                     }
                 }
+                
+                
+                
             }
 
             if (earliestFuturePollTime == null) {
@@ -1936,7 +1987,6 @@ public class SyncManager implements OnAccountsUpdateListener {
             }
 
             if (syncResult != null && syncResult.fullSyncRequested) {
-				logSync(FULL);
                 scheduleSyncOperation(new SyncOperation(syncOperation.account,
                         syncOperation.syncSource, syncOperation.authority, new Bundle(), 0));
             }

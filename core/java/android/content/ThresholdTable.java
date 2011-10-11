@@ -30,23 +30,22 @@ public class ThresholdTable {
 	public ThresholdTable(Profile profile) {
 		this.profile = profile;
 		horizon = profile.getHorizon();
-		maxBattery = profile.getMaxBattery();
-		energyPerSync = profile.energyPerSync;
 
 	}
 
-	public int[] getThreshold() {
-		int[] threshold = new int[horizon];
+	public float[] getThreshold() {
+		float[] threshold = new float[horizon];
 
-		for (int t = horizon - 1; t >= 0; t--) {
-			ArrayList<Pair<Integer, Double>> thisSlot = profile.getEnergyUsed(t);
+		threshold[horizon-1]=0;
+		for (int t = horizon - 2; t >= 0; t--) {
+			ArrayList<Pair<Integer, Float>> thisSlot = profile.getEnergyUsed(t);
 			
 			float th = 0;
-			for( Pair<Integer, Double> v: thisSlot){
+			for( Pair<Integer, Float> v: thisSlot){
 				th += v.first * v.second;
 
 			}
-			threshold[t] = (int)th;
+			threshold[t] = threshold[t+1] + th;
 		}
 
 		return threshold;
