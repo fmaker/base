@@ -39,7 +39,7 @@ public class Profile {
 	private static final int SECS_IN_HOUR = 60 * SECS_IN_MIN;
 	private static final int MIN_HORIZON = 9 * 60;
 	private static final int MAX_HORIZON = 24 * 60;
-	private static final int MIN_CHARGE_DURATION = 5 * 60;
+	private static final int MIN_CHARGE_DURATION = 0 * 60;
 	private static final int SCALE = 100;
 	private static final int BIN_WIDTH = 60 * 5;
 	private static final float MILLI = 1000.0F;
