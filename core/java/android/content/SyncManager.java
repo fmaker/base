@@ -18,6 +18,8 @@ package android.content;
 
 import java.io.File;
 import java.io.FileDescriptor;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.PrintWriter;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -69,6 +71,24 @@ import com.android.internal.util.ArrayUtils;
  */
 public class SyncManager implements OnAccountsUpdateListener {
     private static final String TAG = "SyncManager";
+    static PrintWriter syncLog;
+    static{
+    	try{
+    		syncLog = new PrintWriter(new FileOutputStream(new File("/data/data/","sync.dat")));
+    	}catch(FileNotFoundException e){
+    		e.printStackTrace();
+    	}
+    }
+    
+    private static final int PERIODIC = 0;
+    private static final int SMARTSYNC = 1;
+    private static final int MAYBE = 2;
+    private static final int FULL = 3;
+    
+    private void logSync(int type){
+		syncLog.write(String.valueOf(System.currentTimeMillis())+","+type+"\n");
+		syncLog.flush();
+    }
     
     /** SmartSync enabled **/
     public static boolean smartSyncEnabled=true;
@@ -1548,7 +1568,7 @@ public class SyncManager implements OnAccountsUpdateListener {
         // TODO use the real deal!
         boolean smartDecision(){
         	int time = mProfile.getTimeSlot();
-        	
+        	Log.d(TAG, "time = "+time);
         	float budget = mSmartSyncThresholdTable[time];
         	double remaining = mProfile.getEnergyRemaining();
         	
@@ -1690,6 +1710,7 @@ public class SyncManager implements OnAccountsUpdateListener {
                     // if it can run now, we check the smart decision table to see if it should run
                     // TODO use the real deal!
                     else if (minPollTimeAbsolute <= nowAbsolute && smartDecision() ){
+                    	logSync(SMARTSYNC);
                         Log.v(TAG, "smart sync decision: do it!");
                         scheduleSyncOperation(
                                 new SyncOperation(info.account, SyncStorageEngine.SOURCE_SMART,

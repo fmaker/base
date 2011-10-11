@@ -15,6 +15,7 @@ import android.os.BatteryStats.HistoryItem;
 import android.os.Parcel;
 import android.os.RemoteException;
 import android.os.ServiceManager;
+import android.os.SystemClock;
 import android.util.Log;
 import android.util.Pair;
 import android.util.Slog;
@@ -37,6 +38,7 @@ public class Profile {
 	private static final int SECS_IN_MIN = 60;
 	private static final int SECS_IN_HOUR = 60 * SECS_IN_MIN;
 	private static final int MIN_HORIZON = 9 * 60;
+	private static final int MAX_HORIZON = 24 * 60;
 	private static final int MIN_CHARGE_DURATION = 5 * 60;
 	private static final int SCALE = 100;
 	private static final int BIN_WIDTH = 60 * 5;
@@ -56,8 +58,9 @@ public class Profile {
 	 */
 	
 	private HashMap<Integer, HashMap<Float,Integer>> chargeBins, energyBins;
-	private ArrayList<Integer> chargeTimes;
+	public ArrayList<Integer> chargeTimes;
 	private Context mContext;
+	private long beginningOfDischarging=0;
 
 	public Profile(Context context) {
 		mContext = context;
@@ -67,6 +70,8 @@ public class Profile {
 		final float voltage = 3.7F;
 		mFullBattery = (float) (mProfile.getBatteryCapacity()
 				/ MILLI * SECS_IN_HOUR * voltage);
+		
+		mContext.registerReceiver(mBatteryStatsReceiver, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
 
 		/* Load battery stats */
 		load();
@@ -137,7 +142,7 @@ public class Profile {
 		}
 	}
 	
-	private void findChargeTimes(){
+	public void findChargeTimes(){
 		Log.d(TAG, "Finding charge times");
 		byte lastStatus = BatteryManager.BATTERY_STATUS_DISCHARGING, status;
 		long startTime = 0, timestamp = 0;
@@ -180,6 +185,8 @@ public class Profile {
 		float energy = 0F;
 		boolean first = true;
 		int i = 0;
+		long lastTimeStamp = 0;
+		byte lastStatus = BatteryManager.BATTERY_STATUS_CHARGING;
 
 		if (mStats.startIteratingHistoryLocked()) {
 			final HistoryItem rec = new HistoryItem();
@@ -191,7 +198,7 @@ public class Profile {
 
 				/* Get relative timestamp */
 				final int timestamp = (int) (rec.time - offset);
-				//Log.d(TAG, timestamp+" ("+rec.time+"),"+rec.batteryLevel);
+				Log.d(TAG, timestamp+" ("+rec.time+"),"+rec.batteryLevel+","+rec.batteryStatus);
 
 				if(timestamp > 0){
 					
@@ -220,14 +227,27 @@ public class Profile {
 						/* Need to force initialization on the first run only */
 						first = false;
 					}
+					
+					/* Last charging time is beginning of discharge */
+					if(rec.batteryStatus == BatteryManager.BATTERY_STATUS_DISCHARGING &&
+					   lastStatus == BatteryManager.BATTERY_STATUS_CHARGING)
+						beginningOfDischarging = lastTimeStamp;
 				}
 
 				/* Save for comparison next time */
 				lastPercent = percent;
+				lastTimeStamp = rec.time;
+				lastStatus = rec.batteryStatus;
 				i++;
 			}
 		}
 		Log.d(TAG, "Loaded "+i+" HistoryItems");
+		
+		long now = (long) (System.currentTimeMillis() / MILLI);
+		if(beginningOfDischarging < now){
+			beginningOfDischarging = now;
+		}
+		
 	}
 	
 	/**
@@ -385,35 +405,46 @@ public class Profile {
 	 * @return <EnergyUsed, Probability>
 	 */
 
-	public ArrayList<Pair<Integer, Double>> getEnergyUsed(int t) {
+	public ArrayList<Pair<Integer, Float>> getEnergyUsed(int t) {
 		return getBin(t, chargeBins);
 	}
 	
+	float mEnergyRemaining = 0.0F;
+	BroadcastReceiver mBatteryStatsReceiver = new BroadcastReceiver() {
+		
+		@Override
+		public void onReceive(Context context, Intent intent) {
+			mEnergyRemaining = mFullBattery * intent.getIntExtra(BatteryManager.EXTRA_LEVEL, 100)/100.0F;
+			Log.d(TAG, "mEnergyRemaining now: "+mEnergyRemaining);
+		}
+	};
+
 	public double getEnergyRemaining(){
 		if(mStats == null){
 			load();
 		}
 
-		return mStats.getHistoryEnd().batteryLevel / 100.F * mFullBattery;
+		//return mStats.getHistoryEnd().batteryLevel / 100.F * mFullBattery;
+		return mEnergyRemaining;
 	}
 
 	/** 
 	 * Gets a list of values and counts for each bin 
 	 */
-	private ArrayList<Pair<Integer, Double>> getBin(int t, HashMap<Integer, HashMap<Float,Integer>> bins) {
+	private ArrayList<Pair<Integer, Float>> getBin(int t, HashMap<Integer, HashMap<Float,Integer>> bins) {
 		final int binNum = getBinNum(t);
 
 		if (bins.containsKey(binNum)) {
-			ArrayList<Pair<Integer, Double>> array = new ArrayList<Pair<Integer, Double>>();
+			ArrayList<Pair<Integer, Float>> array = new ArrayList<Pair<Integer, Float>>();
 			
 			HashMap<Float,Integer> bin = bins.get(binNum);
 			for(Float key : bin.keySet()){
-				array.add(new Pair<Integer, Double>(bin.get(key),(double) key));
+				array.add(new Pair<Integer, Float>(bin.get(key),(float) key));
 			}
 			return array;
 
 		} else {
-			return new ArrayList<Pair<Integer, Double>>();
+			return new ArrayList<Pair<Integer, Float>>();
 		}
 	}
 
@@ -450,7 +481,7 @@ public class Profile {
 	private Integer getMax(ArrayList<Integer> array, Integer minimum){
 		Integer max = minimum;
 		for(Integer l : array){
-			if(l > max)
+			if(l > max && l < MAX_HORIZON)
 				max = l;
 		}
 		return max;
@@ -489,6 +520,21 @@ public class Profile {
 			//Log.d(TAG, "\tbin DOES     contain key: "+value+" count="+count);
 		}
 
+	}
+	
+	public int getTimeSlot(){
+//		if (beginningOfDischarging < 0) {
+//			beginningOfDischarging = System.currentTimeMillis();
+//			return 0;
+//		}
+
+		double currentAbsolute = System.currentTimeMillis()/1000;
+		Log.d(TAG, "currentAbsolute "+currentAbsolute);
+		Log.d(TAG, "beginningOfDischarging "+beginningOfDischarging);
+		int sinceLastCharge = (int) Math.floor((currentAbsolute - beginningOfDischarging) / BIN_WIDTH);
+		
+
+		return sinceLastCharge > 0 ? sinceLastCharge : 0;
 	}
 
 }

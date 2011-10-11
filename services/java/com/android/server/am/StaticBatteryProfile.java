@@ -27,10 +27,10 @@ public class StaticBatteryProfile {
 				// First find last timestamp
 				csv = new CSVReader(new FileReader(path));
 				s = csv.readNext();
-				while(s != null){
-					offset = Long.valueOf(s[0]);
-					s = csv.readNext();
-				}
+				//while(s != null){
+				offset = Long.valueOf(s[0]);
+				//	s = csv.readNext();
+				//}
 				csv.close();
 
 				csv = new CSVReader(new FileReader(path));

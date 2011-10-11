@@ -2,6 +2,7 @@ package android.content;
 
 import java.util.ArrayList;
 
+import android.util.Log;
 import android.util.Pair;
 
 /**
@@ -34,6 +35,7 @@ public class ThresholdTable {
 	}
 
 	public float[] getThreshold() {
+		Log.d("ThresholdTable", "new float["+horizon+"]");
 		float[] threshold = new float[horizon];
 
 		threshold[horizon-1]=0;
@@ -42,10 +44,13 @@ public class ThresholdTable {
 			
 			float th = 0;
 			for( Pair<Integer, Float> v: thisSlot){
+				Log.d("ThresholdTable", "Value: "+v.first+" prob: "+ v.second);
 				th += v.first * v.second;
 
 			}
+			th /= profile.chargeTimes.size();
 			threshold[t] = threshold[t+1] + th;
+			Log.d("ThresholdTable","----------------------th: "+th);
 		}
 
 		return threshold;
