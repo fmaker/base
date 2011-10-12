@@ -85,8 +85,8 @@ public class SyncManager implements OnAccountsUpdateListener {
     private static final int MAYBE = 2;
     private static final int FULL = 3;
     
-    private void logSync(int type){
-		syncLog.write(String.valueOf(System.currentTimeMillis())+","+type+"\n");
+    private void logSync(int type, float energy){
+		syncLog.write(String.valueOf(System.currentTimeMillis())+","+type+","+energy+"\n");
 		syncLog.flush();
     }
     
@@ -1710,7 +1710,7 @@ public class SyncManager implements OnAccountsUpdateListener {
                     // if it can run now, we check the smart decision table to see if it should run
                     // TODO use the real deal!
                     else if (minPollTimeAbsolute <= nowAbsolute && smartDecision() ){
-                    	logSync(SMARTSYNC);
+                    	logSync(SMARTSYNC, (float) mProfile.getEnergyRemaining());
                         Log.v(TAG, "smart sync decision: do it!");
                         scheduleSyncOperation(
                                 new SyncOperation(info.account, SyncStorageEngine.SOURCE_SMART,
