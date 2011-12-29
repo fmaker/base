@@ -53,7 +53,6 @@ import android.util.Slog;
 import android.util.SparseArray;
 
 import com.android.internal.util.JournaledFile;
-import com.android.server.am.StaticBatteryProfile;
 
 /**
  * All information we are collecting about things that can happen that impact
@@ -3961,11 +3960,6 @@ public final class BatteryStatsImpl extends BatteryStats {
     }
     
     @Override
-    public HistoryItem getHistoryEnd(){
-    	return mHistoryLastEnd;
-    }
-    
-    @Override
     public long getHistoryBaseTime() {
         return mHistoryBaseTime;
     }
@@ -4698,13 +4692,7 @@ public final class BatteryStatsImpl extends BatteryStats {
             in.setDataPosition(0);
             stream.close();
 
-            Slog.d("BatteryStats","Reading Summary from parcel");
             readSummaryFromParcel(in);
-            
-            /* This should allow us to always start with our set profile */
-            Slog.d("BatteryStats","Clearing then reading HistoryItems from file");
-            clearHistoryLocked();
-            readHistoryFromFile();
         } catch(java.io.IOException e) {
             Slog.e("BatteryStats", "Error reading battery statistics", e);
         }
@@ -4738,16 +4726,6 @@ public final class BatteryStatsImpl extends BatteryStats {
             // point in boot the elapsed time is already more than 5 seconds.
             mHistoryBaseTime -= oldnow;
         }
-    }
-    
-    void readHistoryFromFile(){
-    	Slog.d(TAG, "readHistoryFromFile");
-    	int i = 0;
-    	for(HistoryItem rec : StaticBatteryProfile.getProfileEntries()){
-            addHistoryRecordLocked(rec);
-            i++;
-    	}
-    	Slog.d(TAG, "readHistoryFromFile : entries = "+i);
     }
     
     void writeHistory(Parcel out) {

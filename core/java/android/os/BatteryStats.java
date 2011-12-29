@@ -561,11 +561,6 @@ public abstract class BatteryStats implements Parcelable {
     public abstract HistoryItem getHistory();
     
     /**
-     * Return the last battery state
-     */
-    public abstract HistoryItem getHistoryEnd();
-    
-    /**
      * Return the base time offset for the battery history.
      */
     public abstract long getHistoryBaseTime();
